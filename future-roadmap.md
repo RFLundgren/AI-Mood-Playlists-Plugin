@@ -87,3 +87,137 @@ This is the most technically complex feature, requiring external API polling and
    - It calculates the average vector (e.g., "The user's last 10 tracks average an Energy of 0.85 and a Sadness of 0.90").
    - The plugin queries the rest of the library to find the 30 closest matching tracks using Euclidean distance (similar to Instant Mix).
    - It updates a dedicated `Current Vibe` playlist.
+
+---
+
+## Mood Classification Accuracy Improvements
+
+### Background
+
+The current essentia-tensorflow mood models detect **audio texture** — tempo, spectral brightness, dynamics — not cultural mood context. This produces results like Rammstein appearing in Chill Mix: the model correctly identifies a track with low tempo and low spectral brightness, but has no concept of "this is metal therefore it is not chill." The genre boost system in `app.py` partially compensates, but only fires when genre tags match specific keywords and only adjusts scores rather than enforcing hard rules.
+
+The options below form a progression from a quick tactical fix to a full architectural replacement. They are not mutually exclusive — each builds on the previous.
+
+---
+
+### Option 1: Configurable Per-Mix Genre Exclusions *(Immediate — in progress)*
+
+**What it does:** Adds comma-separated genre exclusion lists to the plugin config UI, one per affected mix (Chill, Sleep, Study, Dining, Background, Road Trip). Tracks whose genre tag matches any excluded keyword are ineligible for that mix regardless of their mood scores. Empty field = revert to hardcoded defaults.
+
+**Changes required:**
+- `analyzer-service/app.py` — return `genre` field in JSON response
+- `main.go` — store genre in KV, read config fields, apply exclusion at playlist generation
+- `manifest.json` — add six new string config fields in a Genre Exclusions UI group
+
+**Defaults:**
+
+| Mix | Default Exclusions |
+|-----|-------------------|
+| Chill | metal, hard rock, punk, hardcore, industrial, grunge, thrash |
+| Sleep | metal, hard rock, punk, hardcore, industrial, grunge, thrash, dance, techno, trance, house, electronic, edm, drum and bass |
+| Study | metal, punk, hardcore, industrial |
+| Dining | metal, hard rock, punk, hardcore, industrial |
+| Background | metal, hard rock, punk, hardcore, industrial |
+| Road Trip | metal, hardcore, industrial |
+
+| Dimension | Rating | Notes |
+|-----------|--------|-------|
+| Effort | Low | ~3 files, straightforward changes |
+| Risk | Low | Additive only, existing behaviour unchanged if fields left empty |
+| Value | High | Immediately fixes obvious misclassification for well-tagged libraries |
+| Dependency | Good genre tags in library | Falls back gracefully if tags missing |
+
+**Limitations:** Entirely dependent on genre tag quality. Obscure or poorly tagged tracks bypass the filter. Does not improve scores — just blocks bad results.
+
+---
+
+### Option 2: Last.fm Crowd-Sourced Tag Integration *(Medium Term)*
+
+**What it does:** During analysis, queries the Last.fm API for user-generated tags on each track (e.g. "chill", "aggressive", "relaxing", "metal"). These tags represent cultural consensus rather than audio texture. Last.fm tags are blended with essentia scores — if Last.fm says "aggressive metal", that overrides a high relaxed score.
+
+**Changes required:**
+- `analyzer-service/app.py` — add Last.fm API call per track using artist+title, parse top tags, apply tag-to-score mapping
+- `manifest.json` / plugin config — add optional `lastfm_api_key` field
+- No changes to `main.go` — scores arrive pre-adjusted
+
+**Blending strategy:**
+- If Last.fm returns tags matching a mood keyword (e.g. "chill", "relaxing") → boost `mood_relaxed`
+- If Last.fm returns tags matching aggressive keywords (e.g. "metal", "heavy") → boost `mood_aggressive`, reduce `mood_relaxed`
+- Weight Last.fm influence at ~30–40% to avoid over-riding valid audio analysis
+
+| Dimension | Rating | Notes |
+|-----------|--------|-------|
+| Effort | Medium | API integration, tag mapping, rate limiting, fallback handling |
+| Risk | Low-Medium | External dependency; falls back to essentia-only if API unavailable |
+| Value | High | Accurate for the vast majority of popular/known music |
+| Dependency | Last.fm API key (free), internet access from analyzer container, track must exist in Last.fm database |
+
+**Limitations:** Unknown, local, or obscure tracks have no Last.fm data. API rate limit is 5 req/sec — analysis of 10k tracks adds ~30 min to a full pass. Not useful for home recordings or rare bootlegs.
+
+**Note:** Partially overlaps with Feature 4 (Last.fm Reactive Listening). The API key config could be shared.
+
+---
+
+### Option 3: CLAP Model — Language-Audio Understanding *(Long Term)*
+
+**What it does:** Replaces or supplements essentia with CLAP (Contrastive Language-Audio Pretraining), a model that jointly understands audio and natural language. You query it with text prompts like "relaxing background music" or "aggressive metal" and it returns a similarity score for any track. It understands cultural context because it was trained on text descriptions of audio.
+
+**Changes required:**
+- `analyzer-service/app.py` — load CLAP model, define mood prompt set, run inference per track, map similarity scores to mood fields
+- Dockerfile — add CLAP model weights (~1GB), torch dependency
+- No changes to plugin (`main.go`, `manifest.json`) — same score fields, same API contract
+
+**Example mood prompts:**
+```
+mood_relaxed  → "calm, relaxing, peaceful background music"
+mood_aggressive → "aggressive, intense, heavy metal music"
+mood_happy    → "happy, upbeat, feel-good music"
+mood_sad      → "sad, melancholy, emotional music"
+```
+
+| Dimension | Rating | Notes |
+|-----------|--------|-------|
+| Effort | High | Model integration, prompt engineering, inference pipeline rewrite |
+| Risk | Medium | Model quality depends on prompt tuning; may need iteration |
+| Value | Very High | Genuine cultural mood understanding, not just audio texture |
+| Dependency | GPU strongly recommended for 10k tracks; CPU viable but slow (~5–10x slower than essentia) |
+
+**Limitations:** Significantly heavier Docker image. Without a GPU, full library analysis would take much longer. Prompt wording affects results and may require tuning per library style. CLAP is less accurate for BPM/danceability — essentia would still be needed for those.
+
+**Recommended approach if pursuing this:** Run CLAP alongside essentia, use CLAP for mood classification and essentia for BPM/danceability/energy. This is a hybrid rather than a full replacement.
+
+---
+
+### Option 4: Full Hybrid — Essentia + Last.fm + CLAP *(Long Term)*
+
+**What it does:** Combines all three signal sources with a weighted scoring system:
+- **Essentia** (40%) — BPM, danceability, energy (audio texture, reliable)
+- **Last.fm** (35%) — cultural consensus tags for known tracks
+- **CLAP** (25%) — semantic audio understanding as a tiebreaker / fallback for unknown tracks
+
+Tracks with good Last.fm coverage get accurate cultural classification. Tracks without Last.fm data (local recordings, bootlegs, obscure releases) fall back to CLAP + essentia.
+
+| Dimension | Rating | Notes |
+|-----------|--------|-------|
+| Effort | Very High | All three integrations plus blending logic |
+| Risk | Medium | More moving parts, harder to debug when a track scores unexpectedly |
+| Value | Very High | Most accurate possible result across all library types |
+| Dependency | All of the above |
+
+**Recommended path:** Only worth pursuing after Option 2 and Option 3 are individually proven to work well. The weights (40/35/25) should be configurable.
+
+---
+
+### Recommended Progression
+
+```
+Now          Option 1 (Genre Exclusions)    Quick win, well-tagged library
+             ↓
+Near term    Option 2 (Last.fm Tags)        Cultural accuracy for known music
+             ↓
+Long term    Option 3 (CLAP)                Semantic understanding for all tracks
+             ↓
+Aspirational Option 4 (Full Hybrid)         Best possible accuracy
+```
+
+Each step is independently valuable and the plugin remains fully functional at every stage.
