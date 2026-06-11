@@ -174,6 +174,7 @@ LASTFM_TAG_BOOSTS = {
 def _get_lastfm_tags(artist: str, title: str, api_key: str) -> list:
     """Fetch top tags for a track from Last.fm. Returns lowercased tag names."""
     if not api_key or not artist or not title:
+        logger.info(f"Last.fm skipped — key={'set' if api_key else 'MISSING'} artist={artist!r} title={title!r}")
         return []
     try:
         params = urllib.parse.urlencode({
@@ -422,6 +423,7 @@ def analyze_url(req: AnalyzeUrlRequest):
 
         result = _analyze_path(tmp_path)
         # Use plugin-supplied artist/title for Last.fm — temp WAV metadata is unreliable
+        logger.info(f"URL analysis request — key={'set' if req.lastfm_api_key else 'MISSING'} artist={req.artist!r} title={req.title!r}")
         if req.lastfm_api_key and req.artist and req.title:
             lastfm_tags = _get_lastfm_tags(req.artist, req.title, req.lastfm_api_key)
             if lastfm_tags:
