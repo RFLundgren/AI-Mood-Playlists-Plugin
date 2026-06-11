@@ -225,6 +225,12 @@
           "title": "Last.fm API Key",
           "description": "Optional. Improves mood accuracy using crowd-sourced listener tags (e.g. 'chill', 'metal', 'melancholy'). Get a free key at https://www.last.fm/api/account/create",
           "default": ""
+        },
+        "force_reanalyze_all": {
+          "type": "boolean",
+          "title": "Force Re-analyze Entire Library",
+          "description": "When enabled, the next analysis run will re-analyze every track regardless of existing scores. Disable again after the run completes.",
+          "default": false
         }
       }
     },
@@ -304,6 +310,10 @@
                 {
                   "type": "Control",
                   "scope": "#/properties/reanalyze_percent"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/force_reanalyze_all"
                 }
               ]
             },

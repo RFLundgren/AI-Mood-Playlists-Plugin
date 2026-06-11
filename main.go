@@ -755,7 +755,8 @@ func onTaskExecute() int32 {
 	// Skip if already analyzed, unless this is a forced re-analysis task
 	key := "mood:" + task.ID
 	existing, ok, _ := host.KVStoreGet(key)
-	if ok && len(existing) > 0 && !task.Force && !task.GenreOnly {
+	forceAll := configBool("force_reanalyze_all", false)
+	if ok && len(existing) > 0 && !task.Force && !task.GenreOnly && !forceAll {
 		return 0
 	}
 
