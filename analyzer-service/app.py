@@ -259,6 +259,8 @@ class AnalyzeRequest(BaseModel):
 class AnalyzeUrlRequest(BaseModel):
     url: str
     lastfm_api_key: str = ""
+    artist: str = ""
+    title: str = ""
 
 
 @app.get("/health")
@@ -418,7 +420,14 @@ def analyze_url(req: AnalyzeUrlRequest):
             last_line = err.splitlines()[-1] if err else "ffmpeg failed"
             raise Exception(last_line)
 
-        return _analyze_path(tmp_path, req.lastfm_api_key)
+        result = _analyze_path(tmp_path)
+        # Use plugin-supplied artist/title for Last.fm — temp WAV metadata is unreliable
+        if req.lastfm_api_key and req.artist and req.title:
+            lastfm_tags = _get_lastfm_tags(req.artist, req.title, req.lastfm_api_key)
+            if lastfm_tags:
+                logger.info(f"Last.fm tags for {req.artist!r} - {req.title!r}: {lastfm_tags}")
+                result = _apply_lastfm_boosts(result, lastfm_tags)
+        return result
     except Exception as e:
         logger.error(f"URL analysis error ({type(e).__name__}): {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch or analyze URL: {e}")

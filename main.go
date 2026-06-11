@@ -783,7 +783,7 @@ func onTaskExecute() int32 {
 	pass := configString("navidrome_password", "")
 	streamURL := subsonicStreamURL(ndURL, user, pass, task.ID)
 
-	scores, err := callAnalyzerURL(analyzerURL, streamURL, lastfmKey)
+	scores, err := callAnalyzerURL(analyzerURL, streamURL, lastfmKey, task.Artist, task.Title)
 	if err != nil {
 		pdk.Log(pdk.LogWarn, fmt.Sprintf("Analysis failed for %s: %s", task.Title, err.Error()))
 		return 1
@@ -807,8 +807,8 @@ func onTaskExecute() int32 {
 	return 0
 }
 
-func callAnalyzerURL(baseURL, streamURL, lastfmKey string) (*MoodScores, error) {
-	reqBody, _ := json.Marshal(map[string]string{"url": streamURL, "lastfm_api_key": lastfmKey})
+func callAnalyzerURL(baseURL, streamURL, lastfmKey, artist, title string) (*MoodScores, error) {
+	reqBody, _ := json.Marshal(map[string]string{"url": streamURL, "lastfm_api_key": lastfmKey, "artist": artist, "title": title})
 
 	resp, err := host.HTTPSend(host.HTTPRequest{
 		URL:       baseURL + "/api/analysis/url",
