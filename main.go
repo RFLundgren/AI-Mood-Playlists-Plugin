@@ -36,6 +36,7 @@ type MoodScores struct {
 	Energy         float64 `json:"energy"`
 	Arousal        float64 `json:"arousal"`
 	Valence        float64 `json:"valence"`
+	Genre          string  `json:"genre,omitempty"`
 }
 
 type AnalysisResponse struct {
@@ -114,74 +115,114 @@ var moods = []MoodDefinition{
 
 var compositeMoods = []CompositeMoodDefinition{
 	{
-		// Calm, focused — exclude aggressive and party tracks; sort by most relaxed
+		// Calm, focused — requires relaxed baseline; exclude aggressive and party tracks
 		Key:   "study",
 		Label: "Study Mix",
 		Conditions: []Condition{
+			{Field: "mood_relaxed", Op: ">=", Value: 0.40},
 			{Field: "mood_aggressive", Op: "<", Value: 0.45},
 			{Field: "mood_party", Op: "<", Value: 0.50},
 		},
 		SortField: "mood_relaxed",
 	},
 	{
-		// High-energy movement — exclude slow/sad tracks; sort by most danceable
+		// High-energy movement — requires danceability; exclude slow/sad tracks
 		Key:   "workout",
 		Label: "Workout Mix",
 		Conditions: []Condition{
+			{Field: "danceability", Op: ">=", Value: 0.50},
 			{Field: "mood_relaxed", Op: "<", Value: 0.60},
 			{Field: "mood_sad", Op: "<", Value: 0.50},
 		},
 		SortField: "danceability",
 	},
 	{
-		// Very quiet and calm — stricter aggressive/party exclusion than Study; sort by most relaxed
+		// Very quiet and calm — requires relaxed baseline; strict aggression/party ceiling
 		Key:   "sleep",
 		Label: "Sleep Mix",
 		Conditions: []Condition{
+			{Field: "mood_relaxed", Op: ">=", Value: 0.30},
 			{Field: "mood_aggressive", Op: "<", Value: 0.30},
 			{Field: "mood_party", Op: "<", Value: 0.35},
 		},
 		SortField: "mood_relaxed",
 	},
 	{
-		// Upbeat driving — exclude aggressive and sad; sort by happiest
+		// Upbeat driving — requires happy baseline; exclude aggressive and sad
 		Key:   "road_trip",
 		Label: "Road Trip Mix",
 		Conditions: []Condition{
+			{Field: "mood_happy", Op: ">=", Value: 0.35},
 			{Field: "mood_aggressive", Op: "<", Value: 0.40},
 			{Field: "mood_sad", Op: "<", Value: 0.50},
 		},
 		SortField: "mood_happy",
 	},
 	{
-		// Light and pleasant — exclude aggressive and sad; sort by happiest
+		// Light and pleasant — requires happy baseline; exclude aggressive and sad
 		Key:   "cooking",
 		Label: "Cooking Mix",
 		Conditions: []Condition{
+			{Field: "mood_happy", Op: ">=", Value: 0.35},
 			{Field: "mood_aggressive", Op: "<", Value: 0.45},
 			{Field: "mood_sad", Op: "<", Value: 0.45},
 		},
 		SortField: "mood_happy",
 	},
 	{
-		// Relaxed table atmosphere — exclude aggressive; sort by most relaxed
+		// Relaxed table atmosphere — requires relaxed baseline; exclude aggressive
 		Key:   "dining",
 		Label: "Dining Mix",
 		Conditions: []Condition{
+			{Field: "mood_relaxed", Op: ">=", Value: 0.40},
 			{Field: "mood_aggressive", Op: "<", Value: 0.40},
 		},
 		SortField: "mood_relaxed",
 	},
 	{
-		// Unobtrusive ambient — exclude aggressive and high-energy party; sort by most relaxed
+		// Unobtrusive ambient — requires relaxed baseline; exclude aggressive and high-energy party
 		Key:   "background",
 		Label: "Background Mix",
 		Conditions: []Condition{
+			{Field: "mood_relaxed", Op: ">=", Value: 0.35},
 			{Field: "mood_aggressive", Op: "<", Value: 0.50},
 			{Field: "mood_party", Op: "<", Value: 0.55},
 		},
 		SortField: "mood_relaxed",
 	},
+}
+
+var defaultGenreExclusions = map[string]string{
+	"chill":      "metal, hard rock, punk, hardcore, industrial, grunge, thrash",
+	"sleep":      "metal, hard rock, punk, hardcore, industrial, grunge, thrash, dance, techno, trance, house, edm, drum and bass",
+	"study":      "metal, punk, hardcore, industrial",
+	"dining":     "metal, hard rock, punk, hardcore, industrial",
+	"background": "metal, hard rock, punk, hardcore, industrial",
+	"road_trip":  "metal, hardcore, industrial",
+}
+
+func parseGenreList(s string) []string {
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.ToLower(strings.TrimSpace(p)); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+func genreExcluded(genre string, excluded []string) bool {
+	if genre == "" || len(excluded) == 0 {
+		return false
+	}
+	lower := strings.ToLower(genre)
+	for _, ex := range excluded {
+		if strings.Contains(lower, ex) {
+			return true
+		}
+	}
+	return false
 }
 
 // ── Plugin Registration ──────────────────────────────────────────
@@ -223,6 +264,16 @@ func onInit() int32 {
 			pdk.Log(pdk.LogError, "Failed to schedule re-analysis: "+err.Error())
 		} else {
 			pdk.Log(pdk.LogInfo, "Scheduled re-analysis task: "+reanalyzeSchedule)
+		}
+	}
+
+	if configBool("run_genre_migration", false) {
+		schedule := configString("genre_migration_schedule", "0 1 * * *")
+		_, err := host.SchedulerScheduleRecurring(schedule, "migrate-genres", "mood-migrate-genres")
+		if err != nil {
+			pdk.Log(pdk.LogError, "Failed to schedule genre migration: "+err.Error())
+		} else {
+			pdk.Log(pdk.LogInfo, "Scheduled genre migration: "+schedule)
 		}
 	}
 
@@ -275,6 +326,8 @@ func onSchedule() int32 {
 		return runScheduledReanalysis()
 	case "enrich-playlists":
 		return enrichPlaylists()
+	case "migrate-genres":
+		return migrateGenres()
 	default:
 		pdk.Log(pdk.LogWarn, "Unknown schedule payload: "+payload)
 		return 0
@@ -363,13 +416,15 @@ func (p *moodPlugin) GetSimilarSongsByTrack(req metadata.SimilarSongsByTrackRequ
 // ── Analysis Logic ───────────────────────────────────────────────
 
 type pluginTask struct {
-	TaskType string `json:"task_type,omitempty"` // "analyze", "playlist_chunk", or "playlist_finish"
-	ID       string `json:"id,omitempty"`
-	Title    string `json:"title,omitempty"`
-	Artist   string `json:"artist,omitempty"`
-	Force    bool   `json:"force,omitempty"` // bypass the skip-if-already-analyzed check
-	MoodKey  string `json:"mood_key,omitempty"`
-	Offset   int    `json:"offset,omitempty"`
+	TaskType   string `json:"task_type,omitempty"` // "analyze", "playlist_chunk", or "playlist_finish"
+	ID         string `json:"id,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Artist     string `json:"artist,omitempty"`
+	Genre      string `json:"genre,omitempty"`
+	Force      bool   `json:"force,omitempty"`      // bypass the skip-if-already-analyzed check
+	GenreOnly  bool   `json:"genre_only,omitempty"` // update genre field only, skip audio analysis
+	MoodKey    string `json:"mood_key,omitempty"`
+	Offset     int    `json:"offset,omitempty"`
 }
 
 // isUncertain returns true when no mood score is clearly dominant — the model
@@ -438,6 +493,7 @@ func runAnalysis() int32 {
 						Title  string `json:"title"`
 						Artist string `json:"artist"`
 						Path   string `json:"path"`
+						Genre  string `json:"genre"`
 					} `json:"song"`
 				} `json:"searchResult3"`
 			} `json:"subsonic-response"`
@@ -460,6 +516,7 @@ func runAnalysis() int32 {
 				ID:     song.ID,
 				Title:  song.Title,
 				Artist: song.Artist,
+				Genre:  song.Genre,
 			})
 			if _, err := host.TaskEnqueue("mood-analysis", taskData); err != nil {
 				pdk.Log(pdk.LogWarn, "Failed to queue "+song.Title+": "+err.Error())
@@ -492,6 +549,83 @@ func runAnalysis() int32 {
 
 	host.KVStoreSet("analysis:offset", []byte(strconv.Itoa(offset)))
 	pdk.Log(pdk.LogInfo, fmt.Sprintf("Queued %d tracks (next offset: %d)", totalQueued, offset))
+	return 0
+}
+
+// migrateGenres is the scheduler entry point — it simply kicks off the first
+// chunk task and returns immediately, staying well within the 30-second limit.
+// The chunk tasks run in the task queue (no timeout) and chain themselves until
+// the entire library has been processed.
+func migrateGenres() int32 {
+	pdk.Log(pdk.LogInfo, "Starting genre migration — queuing first chunk...")
+	taskData, _ := json.Marshal(pluginTask{TaskType: "genre_migrate_chunk", Offset: 0})
+	if _, err := host.TaskEnqueue("mood-analysis", taskData); err != nil {
+		pdk.Log(pdk.LogError, "Failed to queue genre migration: "+err.Error())
+		return 1
+	}
+	return 0
+}
+
+// processMigrateGenreChunk handles one batch of the genre migration.
+// For each analyzed track missing a genre it queues a GenreOnly update task,
+// then chains to the next chunk until the library is exhausted.
+func processMigrateGenreChunk(offset int) int32 {
+	const batchSize = 500
+
+	uri := fmt.Sprintf("search3?query=&songCount=%d&songOffset=%d&albumCount=0&artistCount=0", batchSize, offset)
+	respStr, err := subsonicCall(uri)
+	if err != nil {
+		pdk.Log(pdk.LogError, fmt.Sprintf("Genre migration chunk %d: Subsonic search failed: %s", offset, err.Error()))
+		return 1
+	}
+
+	var result struct {
+		SubsonicResponse struct {
+			SearchResult3 struct {
+				Song []struct {
+					ID     string `json:"id"`
+					Title  string `json:"title"`
+					Artist string `json:"artist"`
+					Genre  string `json:"genre"`
+				} `json:"song"`
+			} `json:"searchResult3"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.Unmarshal([]byte(respStr), &result); err != nil {
+		pdk.Log(pdk.LogError, fmt.Sprintf("Genre migration chunk %d: parse error: %s", offset, err.Error()))
+		return 1
+	}
+
+	// Update genre directly in KV — no need to queue individual tasks
+	songs := result.SubsonicResponse.SearchResult3.Song
+	updated := 0
+	for _, song := range songs {
+		existing, ok, _ := host.KVStoreGet("mood:" + song.ID)
+		if !ok || len(existing) == 0 {
+			continue
+		}
+		var scores MoodScores
+		if err := json.Unmarshal(existing, &scores); err != nil || scores.Genre != "" {
+			continue
+		}
+		scores.Genre = song.Genre
+		data, _ := json.Marshal(scores)
+		if err := host.KVStoreSet("mood:"+song.ID, data); err == nil {
+			updated++
+		}
+	}
+
+	if len(songs) < batchSize {
+		pdk.Log(pdk.LogInfo, fmt.Sprintf("Genre migration complete — final chunk %d, updated %d tracks", offset, updated))
+		return 0
+	}
+
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("Genre migration chunk %d-%d: updated %d tracks, continuing...", offset, offset+batchSize, updated))
+	nextTask, _ := json.Marshal(pluginTask{TaskType: "genre_migrate_chunk", Offset: offset + batchSize})
+	if _, err := host.TaskEnqueue("mood-analysis", nextTask); err != nil {
+		pdk.Log(pdk.LogError, fmt.Sprintf("Genre migration: failed to queue next chunk at offset %d: %s", offset+batchSize, err.Error()))
+		return 1
+	}
 	return 0
 }
 
@@ -614,11 +748,27 @@ func onTaskExecute() int32 {
 	if task.TaskType == "playlist_finish" {
 		return finishPlaylistGeneration()
 	}
+	if task.TaskType == "genre_migrate_chunk" {
+		return processMigrateGenreChunk(task.Offset)
+	}
 
 	// Skip if already analyzed, unless this is a forced re-analysis task
 	key := "mood:" + task.ID
 	existing, ok, _ := host.KVStoreGet(key)
-	if ok && len(existing) > 0 && !task.Force {
+	if ok && len(existing) > 0 && !task.Force && !task.GenreOnly {
+		return 0
+	}
+
+	// Genre-only migration: patch the stored scores with genre, skip audio analysis
+	if task.GenreOnly && task.Genre != "" {
+		if ok && len(existing) > 0 {
+			var scores MoodScores
+			if err := json.Unmarshal(existing, &scores); err == nil {
+				scores.Genre = task.Genre
+				data, _ := json.Marshal(scores)
+				host.KVStoreSet(key, data)
+			}
+		}
 		return 0
 	}
 
@@ -633,6 +783,7 @@ func onTaskExecute() int32 {
 		pdk.Log(pdk.LogWarn, fmt.Sprintf("Analysis failed for %s: %s", task.Title, err.Error()))
 		return 1
 	}
+	scores.Genre = task.Genre
 
 	data, _ := json.Marshal(scores)
 	if err := host.KVStoreSet(key, data); err != nil {
@@ -874,8 +1025,12 @@ func handlePlaylistChunk(offset int) int32 {
 		json.Unmarshal(data, &existing)
 
 		// Filter chunk for this mood
+		excludedGenres := parseGenreList(configString(moodKey+"_excluded_genres", defaultGenreExclusions[moodKey]))
 		var matches []trackWithScores
 		for _, t := range chunkTracks {
+			if genreExcluded(t.Scores.Genre, excludedGenres) {
+				continue
+			}
 			if isComposite {
 				if matchesAllConditions(t.Scores, conditions) {
 					matches = append(matches, t)
@@ -980,6 +1135,8 @@ func finishPlaylistGeneration() int32 {
 		songIDs := selectTracks(candidates, trackCount, maxPerArtist, poolMultiplier)
 		if len(songIDs) > 0 {
 			upsertPlaylist(label, songIDs, existingIDs)
+		} else {
+			pdk.Log(pdk.LogWarn, fmt.Sprintf("No qualifying tracks for '%s' — playlist not updated", label))
 		}
 		// Cleanup
 		host.KVStoreSet(key, []byte("[]"))

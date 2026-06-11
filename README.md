@@ -10,8 +10,9 @@ Works with any Subsonic-compatible client (Symfonium, Sublime Music, etc.).
 - **Mood-Aware Instant Mix** — Replaces the default Instant Mix with mood-similarity matching (Euclidean distance across mood vectors)
 - **Scheduled Analysis** — Periodically scans your library for new tracks and sends them to the analyzer
 - **Scheduled Refresh** — Regenerates mood playlists on a cron schedule so they evolve as your library grows
+- **Genre Exclusions** — Per-playlist configurable genre blocklists prevent misclassified tracks from appearing in calm/chill mixes
 - **Playlist Dates & Timestamps** — Automatically tracks when mood playlists are generated and syncs creation dates to all your playlists (visible in Subsonic clients and optionally the Navidrome UI)
-- **Fully Configurable** — Mood thresholds, playlist sizes, analysis/refresh schedules, and analyzer URL are all configurable from Navidrome's plugin settings UI
+- **Fully Configurable** — Mood thresholds, genre exclusions, playlist sizes, analysis/refresh schedules all configurable from the plugin settings UI
 
 ### Mood Playlists
 
@@ -20,23 +21,25 @@ Works with any Subsonic-compatible client (Symfonium, Sublime Music, etc.).
 | Playlist | Based on | Default Threshold |
 |----------|----------|-------------------|
 | Happy Mix | mood_happy | 0.55 |
-| Chill Mix | mood_relaxed | 0.55 |
-| Energetic Mix | danceability | 0.6 |
+| Chill Mix | mood_relaxed | 0.40 |
+| Energetic Mix | danceability | 0.60 |
 | Melancholy Mix | mood_sad | 0.45 |
 | Party Mix | mood_party | 0.55 |
-| Aggressive Mix | mood_aggressive | 0.45 |
+| Aggressive Mix | mood_aggressive | 0.55 |
 
-**Composite moods** — multiple conditions that must all be true:
+**Composite moods** — require a positive attribute AND cap negative ones:
 
-| Playlist | Conditions | Sorted by |
-|----------|-----------|-----------|
-| Study Mix | relaxed >= 0.45, energy < 0.15, aggressive < 0.2 | relaxed |
-| Workout Mix | danceability >= 0.55, energy >= 0.12, BPM >= 120 | energy |
-| Sleep Mix | relaxed >= 0.5, energy < 0.08, BPM < 100 | relaxed |
-| Road Trip Mix | happy >= 0.4, danceability >= 0.45, energy >= 0.1 | happy |
-| Cooking Mix | happy >= 0.35, relaxed >= 0.3, danceability >= 0.3, aggressive < 0.2 | danceability |
-| Dining Mix | relaxed >= 0.4, happy >= 0.3, energy < 0.15, aggressive < 0.15 | relaxed |
-| Background Mix | relaxed >= 0.35, energy < 0.12, party < 0.3, aggressive < 0.2 | relaxed |
+| Playlist | Requires | Excludes | Sorted by |
+|----------|---------|---------|-----------|
+| Study Mix | relaxed ≥ 0.40 | aggressive ≥ 0.45, party ≥ 0.50 | relaxed |
+| Workout Mix | danceability ≥ 0.50 | relaxed ≥ 0.60, sad ≥ 0.50 | danceability |
+| Sleep Mix | relaxed ≥ 0.30 | aggressive ≥ 0.30, party ≥ 0.35 | relaxed |
+| Road Trip Mix | happy ≥ 0.35 | aggressive ≥ 0.40, sad ≥ 0.50 | happy |
+| Cooking Mix | happy ≥ 0.35 | aggressive ≥ 0.45, sad ≥ 0.45 | happy |
+| Dining Mix | relaxed ≥ 0.40 | aggressive ≥ 0.40 | relaxed |
+| Background Mix | relaxed ≥ 0.35 | aggressive ≥ 0.50, party ≥ 0.55 | relaxed |
+
+Genre exclusions are applied on top of all mood conditions — see [Genre Exclusions](#genre-exclusions) below.
 
 ## Documentation
 
@@ -55,13 +58,6 @@ cd analyzer-service
 docker build --build-arg TARGETARCH=arm64 -t mood-analyzer .
 ```
 
-docker run -d \
-  --name mood-analyzer \
-  -p 8000:8000 \
-  -v /path/to/your/music:/music:ro \
-  mood-analyzer
-```
-
 Or add it to your existing `docker-compose.yml`:
 
 ```yaml
@@ -69,20 +65,17 @@ mood-analyzer:
   build:
     context: ./analyzer-service
   container_name: mood-analyzer
-  volumes:
-    - /path/to/your/music:/music:ro
   restart: unless-stopped
 ```
-or using the published image of the latest release with:
+
+Or use the published image from the latest release:
+
 ```yaml
 mood-analyzer:
   image: ghcr.io/rflundgren/navidrome-mood-plugin:latest
   container_name: mood-analyzer
-  volumes:
-    - /path/to/your/music:/music:ro
   restart: unless-stopped
 ```
-The music path must match what Navidrome sees — the analyzer reads the same audio files.
 
 ### 2. Install the Plugin
 
@@ -175,6 +168,29 @@ Raw essentia scores are adjusted using track metadata for better accuracy. Witho
 
 **BPM correction** — DnB is often detected at half-time (86 BPM instead of 172). Tracks with 80–95 BPM in DnB/Jungle genres are corrected to double-time, which triggers a +0.20 danceability boost for the 140–180 BPM range.
 
+## Genre Exclusions
+
+The essentia models analyze audio texture — they detect tempo, spectral brightness, and dynamics, not cultural genre context. This means a slow, quiet metal track can legitimately score high on `mood_relaxed` and appear in the Chill or Sleep Mix, even though it is clearly not appropriate there.
+
+Genre exclusions solve this with hard blocklists applied during playlist generation. Tracks whose genre tag matches any keyword in a mix's exclusion list are ineligible for that mix, regardless of their mood scores.
+
+**Default exclusions:**
+
+| Mix | Excluded genres (keyword match) |
+|-----|---------------------------------|
+| Chill | metal, hard rock, punk, hardcore, industrial, grunge, thrash |
+| Sleep | metal, hard rock, punk, hardcore, industrial, grunge, thrash, dance, techno, trance, house, edm, drum and bass |
+| Study | metal, punk, hardcore, industrial |
+| Dining | metal, hard rock, punk, hardcore, industrial |
+| Background | metal, hard rock, punk, hardcore, industrial |
+| Road Trip | metal, hardcore, industrial |
+
+Matching is case-insensitive substring — `metal` matches `Heavy Metal`, `Power Metal`, `Symphonic Metal`, etc.
+
+**Customising exclusions:** Each mix has its own config field (`chill_excluded_genres`, `sleep_excluded_genres`, etc.) in the Genre Exclusions section of the plugin settings. Leave the field empty to use the defaults above. Enter a comma-separated list to override entirely.
+
+**Genre migration:** If your library was analyzed before genre exclusions were introduced, existing KV entries may not have genre data. Enable **Run Genre Migration** in the plugin settings (Genre Exclusions section) to backfill genre data from Navidrome into all existing entries — no re-analysis required. Disable it again after it completes (check logs for `Genre migration complete`).
+
 ## Configuration
 
 All settings are configurable from Navidrome's plugin settings UI:
@@ -184,26 +200,34 @@ All settings are configurable from Navidrome's plugin settings UI:
 | Analyzer Service URL | `http://mood-analyzer:8000` | URL of the mood analyzer HTTP service |
 | Auto-Analyze | `true` | Automatically analyze new tracks on schedule |
 | Analysis Schedule | `0 2 * * *` | Cron expression (default: 2 AM daily) |
-| Playlist Refresh Schedule | `0 3 * * 0` | Cron expression (default: 3 AM Sundays) |
-| Tracks per Playlist | `30` | Number of tracks in each mood playlist (applies to all 13) |
-| Similar Songs Count | `20` | Tracks returned for Instant Mix |
-| Happy Threshold | `0.55` | Minimum score (0-1) for happy classification |
-| Chill Threshold | `0.55` | Minimum score for chill/relaxed |
-| Energetic Threshold | `0.6` | Minimum score for energetic/danceable |
-| Party Threshold | `0.55` | Minimum score for party |
-| Melancholy Threshold | `0.45` | Minimum score for sad/melancholy |
-| Aggressive Threshold | `0.45` | Minimum score for aggressive |
-| Max Tracks per Artist | `3` | Per-artist cap per playlist (0 = no limit) |
-| Max Analysis Workers | `2` | Number of concurrent analysis tasks (1-8) |
-| Playlist Variation Pool | `3` | Pool multiplier for weekly variation (1–10) |
 | Re-analyze Uncertain | `true` | Re-queue tracks with low-confidence scores |
 | Re-analyze Percent | `0` | % of library to randomly re-analyze each cycle (0–20) |
 | Re-analysis Schedule | `0 4 1 * *` | Cron expression for dedicated re-analysis run |
-| Show Dates in Playlist Names | `true` | Append generation/creation dates directly to playlist titles (visible in Navidrome Web UI) |
-| Add Creation Dates to Playlists | `false` | Automatically sync creation dates to the comments (and optionally titles) of all playlists |
+| Playlist Refresh Schedule | `0 3 * * 0` | Cron expression (default: 3 AM Sundays) |
+| Tracks per Playlist | `30` | Number of tracks in each mood playlist (applies to all 13) |
+| Similar Songs Count | `20` | Tracks returned for Instant Mix |
+| Max Tracks per Artist | `3` | Per-artist cap per playlist (0 = no limit) |
+| Max Analysis Workers | `2` | Number of concurrent analysis tasks (1-8) |
+| Playlist Variation Pool | `3` | Pool multiplier for weekly variation (1–10) |
+| Happy Threshold | `0.55` | Minimum score (0-1) for happy classification |
+| Chill Threshold | `0.40` | Minimum score for chill/relaxed |
+| Energetic Threshold | `0.60` | Minimum score for energetic/danceable |
+| Party Threshold | `0.55` | Minimum score for party |
+| Melancholy Threshold | `0.45` | Minimum score for sad/melancholy |
+| Aggressive Threshold | `0.55` | Minimum score for aggressive |
+| Show Dates in Playlist Names | `true` | Append generation/creation dates directly to playlist titles |
+| Add Creation Dates to Playlists | `false` | Automatically sync creation dates to all playlists |
 | Creation Date Sync Schedule | `0 5 * * *` | Cron expression for the creation date sync task |
+| Chill Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Chill Mix |
+| Sleep Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Sleep Mix |
+| Study Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Study Mix |
+| Dining Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Dining Mix |
+| Background Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Background Mix |
+| Road Trip Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Road Trip Mix |
+| Run Genre Migration | `false` | One-time backfill of genre data into existing analyzed tracks |
+| Genre Migration Schedule | `0 1 * * *` | Cron expression for the genre migration pass |
 
-Note: Composite mood conditions (Study, Workout, etc.) are not configurable via the UI — they use fixed thresholds tuned for their specific scenarios. The simple mood thresholds above remain fully adjustable.
+Composite mood conditions (requires/excludes thresholds) are fixed in code and not configurable via the UI.
 
 ## How It Works
 
@@ -226,7 +250,8 @@ Note: Composite mood conditions (Study, Workout, etc.) are not configurable via 
 
 2. **Playlists** — On the refresh schedule, it queries stored mood data and creates two types of playlists:
    - **Simple moods** — selects tracks above a single threshold (sorted by that score)
-   - **Composite moods** — selects tracks matching ALL conditions (e.g., Study requires high relaxation AND low energy AND low aggression), sorted by a primary score field
+   - **Composite moods** — selects tracks that pass both a minimum positive requirement and maximum caps on negative attributes, sorted by the primary score field
+   - **Genre exclusions** — applied across all playlists after mood filtering; tracks whose genre tag matches a blocklist keyword are removed regardless of score
 
 3. **Instant Mix** — When triggered on a track, calculates Euclidean distance between the source track's mood vector and all analyzed tracks, returning the closest matches.
 
@@ -248,25 +273,31 @@ docker build -t mood-analyzer .
 
 ### 2. Plugin (WASM)
 
-#### With Docker (no local Go/TinyGo required)
-
-```bash
-make docker-build
-```
-
-### With Go 1.26+
-
-```bash
-GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o plugin.wasm .
-zip mood-playlists.ndp plugin.wasm manifest.json
-```
-
-### With TinyGo (smaller binary)
+#### With TinyGo (recommended — smaller binary)
 
 ```bash
 tinygo build -opt=2 -scheduler=none -no-debug -o plugin.wasm -target wasip1 -buildmode=c-shared .
+```
+
+**Windows (PowerShell):**
+```powershell
+Remove-Item mood-playlists.ndp -ErrorAction SilentlyContinue
+Compress-Archive -Path plugin.wasm, manifest.json -DestinationPath mood-playlists.zip
+Rename-Item mood-playlists.zip mood-playlists.ndp
+```
+
+**Linux / macOS:**
+```bash
 zip mood-playlists.ndp plugin.wasm manifest.json
 ```
+
+#### With Go 1.26+
+
+```bash
+GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o plugin.wasm .
+```
+
+Then package as above.
 
 ## Contributing
 
@@ -275,7 +306,7 @@ Contributions welcome! Some ideas:
 - [ ] Per-user mood playlists
 - [ ] "Mood of the day" rotating playlist
 - [ ] Configurable thresholds for composite moods via the settings UI
-- [ ] Integration with Last.fm listening history for personalized moods
+- [ ] Last.fm tag integration for cultural mood context (crowd-sourced tags to complement audio analysis)
 
 ## License
 

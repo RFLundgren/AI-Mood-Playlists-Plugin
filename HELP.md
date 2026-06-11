@@ -15,11 +15,12 @@ This guide walks you through every step needed to get the Mood Playlists plugin 
 7. [Step 5 — Run Your First Analysis](#7-step-5--run-your-first-analysis)
 8. [Step 6 — Generate the Playlists](#8-step-6--generate-the-playlists)
 9. [Understanding the Playlists](#9-understanding-the-playlists)
-10. [Playlist Dates & Timestamps](#10-playlist-dates--timestamps)
-11. [Configuration Reference](#11-configuration-reference)
-12. [Monitoring Analysis Progress](#12-monitoring-analysis-progress)
-13. [Troubleshooting](#13-troubleshooting)
-14. [Building from Source](#14-building-from-source)
+10. [Genre Exclusions](#10-genre-exclusions)
+11. [Playlist Dates & Timestamps](#11-playlist-dates--timestamps)
+12. [Configuration Reference](#12-configuration-reference)
+13. [Monitoring Analysis Progress](#13-monitoring-analysis-progress)
+14. [Troubleshooting](#14-troubleshooting)
+15. [Building from Source](#15-building-from-source)
 
 ---
 
@@ -349,7 +350,7 @@ After the refresh runs, up to 13 playlists appear in Navidrome's **Playlists** s
 
 **Scenario playlists:** Study Mix, Workout Mix, Sleep Mix, Road Trip Mix, Cooking Mix, Dining Mix, Background Mix
 
-If a playlist has no qualifying tracks it is skipped silently — this is normal early on when few tracks have been analyzed, or if your thresholds are strict. Run analysis longer and refresh again.
+If a playlist has no qualifying tracks it is not updated and a warning is logged (`No qualifying tracks for 'X Mix'`) — this is normal early on when few tracks have been analyzed, or if genre exclusions and thresholds combine to filter all candidates. Run analysis longer, lower the relevant threshold, or adjust genre exclusions, then refresh again.
 
 ### Instant Mix
 
@@ -376,19 +377,21 @@ The exclusions prevent contradictory tracks appearing — for example a cheerful
 
 ### Composite mood playlists
 
-These playlists exclude tracks that clearly don't fit the scenario, then take the highest-scoring tracks from what remains. This approach guarantees a full playlist regardless of how your library scores — every playlist always has tracks.
+These playlists require a positive attribute (e.g. must score high on relaxed) AND cap negative attributes (e.g. must not score high on aggressive). Tracks that meet all conditions are sorted by the primary score and the top N are selected.
 
-| Playlist | Excludes | Sorted by |
-|----------|----------|-----------|
-| **Study Mix** | aggressive ≥ 0.45, party ≥ 0.50 | mood_relaxed |
-| **Workout Mix** | relaxed ≥ 0.60, sad ≥ 0.50 | danceability |
-| **Sleep Mix** | aggressive ≥ 0.30, party ≥ 0.35 | mood_relaxed |
-| **Road Trip Mix** | aggressive ≥ 0.40, sad ≥ 0.50 | mood_happy |
-| **Cooking Mix** | aggressive ≥ 0.45, sad ≥ 0.45 | mood_happy |
-| **Dining Mix** | aggressive ≥ 0.40 | mood_relaxed |
-| **Background Mix** | aggressive ≥ 0.50, party ≥ 0.55 | mood_relaxed |
+| Playlist | Requires | Excludes | Sorted by |
+|----------|---------|---------|-----------|
+| **Study Mix** | relaxed ≥ 0.40 | aggressive ≥ 0.45, party ≥ 0.50 | mood_relaxed |
+| **Workout Mix** | danceability ≥ 0.50 | relaxed ≥ 0.60, sad ≥ 0.50 | danceability |
+| **Sleep Mix** | relaxed ≥ 0.30 | aggressive ≥ 0.30, party ≥ 0.35 | mood_relaxed |
+| **Road Trip Mix** | happy ≥ 0.35 | aggressive ≥ 0.40, sad ≥ 0.50 | mood_happy |
+| **Cooking Mix** | happy ≥ 0.35 | aggressive ≥ 0.45, sad ≥ 0.45 | mood_happy |
+| **Dining Mix** | relaxed ≥ 0.40 | aggressive ≥ 0.40 | mood_relaxed |
+| **Background Mix** | relaxed ≥ 0.35 | aggressive ≥ 0.50, party ≥ 0.55 | mood_relaxed |
 
-For example, Study Mix takes all tracks that are neither aggressive nor high-energy party music, then sorts them by relaxed score and picks the top 30 (or however many you've configured). The most genuinely relaxed tracks in your library always rise to the top.
+Genre exclusions are applied on top of these conditions — see [Genre Exclusions](#10-genre-exclusions).
+
+If a playlist produces zero qualifying tracks after all filtering, the existing playlist is left unchanged and a warning is logged. This can happen in heavily genre-filtered libraries where few non-excluded tracks also meet the mood conditions — lower the relevant threshold or adjust the genre exclusion list.
 
 ### Tuning thresholds
 
@@ -421,7 +424,68 @@ Each refresh updates existing playlists in-place rather than creating new ones. 
 
 ---
 
-## 10. Playlist Dates & Timestamps
+## 10. Genre Exclusions
+
+### Why they exist
+
+The essentia models score audio texture — tempo, spectral brightness, dynamics. They have no concept of genre or cultural context. A slow, quiet metal track can legitimately score high on `mood_relaxed` and appear in Chill or Sleep Mix even though it clearly does not belong there.
+
+Genre exclusions fix this with hard per-playlist blocklists. During playlist generation, any track whose genre tag contains a blocked keyword is ineligible for that mix, regardless of its mood scores. Matching is case-insensitive substring — the keyword `metal` blocks `Heavy Metal`, `Power Metal`, `Symphonic Metal`, etc.
+
+### Default exclusions
+
+| Mix | Default blocked keywords |
+|-----|--------------------------|
+| Chill | metal, hard rock, punk, hardcore, industrial, grunge, thrash |
+| Sleep | metal, hard rock, punk, hardcore, industrial, grunge, thrash, dance, techno, trance, house, edm, drum and bass |
+| Study | metal, punk, hardcore, industrial |
+| Dining | metal, hard rock, punk, hardcore, industrial |
+| Background | metal, hard rock, punk, hardcore, industrial |
+| Road Trip | metal, hardcore, industrial |
+
+Happy Mix, Energetic Mix, Melancholy Mix, Party Mix, Aggressive Mix, Workout Mix, and Cooking Mix have no genre exclusions by default.
+
+### Customising exclusions
+
+Each affected mix has a corresponding field in the **Genre Exclusions** section of the plugin settings:
+
+- `Chill Mix - Excluded Genres`
+- `Sleep Mix - Excluded Genres`
+- `Study Mix - Excluded Genres`
+- `Dining Mix - Excluded Genres`
+- `Background Mix - Excluded Genres`
+- `Road Trip Mix - Excluded Genres`
+
+**Leave the field empty** to use the defaults shown above.
+
+**Enter a comma-separated list** to completely override the defaults for that mix. For example, to also block classical and opera from Dining Mix:
+```
+metal, hard rock, punk, hardcore, industrial, classical, opera
+```
+
+### Genre migration (first-time setup)
+
+Genre data is stored alongside mood scores in the plugin's KV store. Tracks analyzed before genre exclusions were introduced (plugin version 0.8.3 or earlier) may have empty genre in their stored scores, which means the exclusion filter cannot apply to them.
+
+To fix this without re-analyzing your entire library:
+
+1. Go to **Settings → Plugins → Mood Playlists → Configure**
+2. Scroll to the **Genre Exclusions** section
+3. Set **Genre Migration Schedule** to fire a few minutes from now (e.g. if the server is at `01:00 UTC`, set `5 1 * * *`)
+4. Enable **Run Genre Migration** and save
+5. Wait for it to run — watch logs for `Genre migration chunk X-Y` messages
+6. When you see `Genre migration complete`, disable **Run Genre Migration** and save
+
+The migration reads each track's genre from Navidrome and patches it into the existing KV entry. No audio re-analysis is needed and your existing mood scores are preserved. It processes your library in batches of 500 and chains automatically until complete.
+
+Check progress in logs:
+```bash
+docker logs navidrome -f | grep -i "genre migration"
+```
+
+---
+
+## 11. Playlist Dates & Timestamps
 
 The plugin can help you keep track of when playlists were created or last refreshed. This information is saved using the Subsonic API so that it can be read by third-party mobile and desktop clients (like Symfonium or Feishin), and optionally displayed directly in Navidrome's Web UI.
 
@@ -439,7 +503,7 @@ Navidrome's Web UI does not natively display playlist descriptions or comments. 
 
 ---
 
-## 11. Configuration Reference
+## 12. Configuration Reference
 
 ### Cron schedule format
 
@@ -471,14 +535,14 @@ Navidrome's Web UI does not natively display playlist descriptions or comments. 
 | `analyzer_url` | `http://mood-analyzer:8000` | — | — | URL of the analyzer service |
 | `auto_analyze` | `true` | — | — | Enable scheduled analysis |
 | `analyze_schedule` | `0 2 * * *` | — | — | Cron expression for analysis runs |
+| `reanalyze_uncertain` | `true` | — | — | Automatically re-analyze tracks with low-confidence scores |
+| `reanalyze_percent` | `0` | 0 | 20 | Percentage of library to randomly re-analyze each re-analysis run (0 = disabled) |
+| `reanalyze_schedule` | `0 4 1 * *` | — | — | Cron expression for the dedicated re-analysis pass |
 | `playlist_refresh_schedule` | `0 3 * * 0` | — | — | Cron expression for playlist refresh |
 | `playlist_track_count` | `30` | 10 | 200 | Maximum tracks per playlist |
 | `max_tracks_per_artist` | `3` | 0 | 50 | Maximum tracks per artist per playlist (0 = no limit) |
 | `max_concurrency` | `2` | 1 | 8 | Number of concurrent analysis tasks |
 | `playlist_variation_pool` | `3` | 1 | 10 | Shuffle top N × pool tracks before picking; higher = more weekly variety (1 = always same tracks) |
-| `reanalyze_uncertain` | `true` | — | — | Automatically re-analyze tracks with low-confidence scores |
-| `reanalyze_percent` | `0` | 0 | 20 | Percentage of library to randomly re-analyze each re-analysis run (0 = disabled) |
-| `reanalyze_schedule` | `0 4 1 * *` | — | — | Cron expression for the dedicated re-analysis pass |
 | `similar_songs_count` | `20` | 5 | 100 | Tracks returned for Instant Mix |
 | `happy_threshold` | `0.55` | 0 | 1 | Minimum score for Happy Mix |
 | `chill_threshold` | `0.40` | 0 | 1 | Minimum score for Chill Mix |
@@ -489,10 +553,20 @@ Navidrome's Web UI does not natively display playlist descriptions or comments. 
 | `show_dates_in_title` | `true` | — | — | Append timestamps directly to playlist titles |
 | `enrich_playlists` | `false` | — | — | Automatically sync creation dates to all playlists |
 | `enrich_schedule` | `0 5 * * *` | — | — | Cron expression for the creation date sync task |
+| `chill_excluded_genres` | _(see defaults)_ | — | — | Comma-separated genre keywords blocked from Chill Mix. Empty = use defaults. |
+| `sleep_excluded_genres` | _(see defaults)_ | — | — | Comma-separated genre keywords blocked from Sleep Mix. Empty = use defaults. |
+| `study_excluded_genres` | _(see defaults)_ | — | — | Comma-separated genre keywords blocked from Study Mix. Empty = use defaults. |
+| `dining_excluded_genres` | _(see defaults)_ | — | — | Comma-separated genre keywords blocked from Dining Mix. Empty = use defaults. |
+| `background_excluded_genres` | _(see defaults)_ | — | — | Comma-separated genre keywords blocked from Background Mix. Empty = use defaults. |
+| `road_trip_excluded_genres` | _(see defaults)_ | — | — | Comma-separated genre keywords blocked from Road Trip Mix. Empty = use defaults. |
+| `run_genre_migration` | `false` | — | — | Enable one-time genre backfill for existing analyzed tracks. Disable after completion. |
+| `genre_migration_schedule` | `0 1 * * *` | — | — | Cron expression for the genre migration pass |
+
+> **Cron note:** Navidrome validates the minute field (first position) against a maximum of 23. Keep minute values between 0 and 23 to avoid a schedule registration error.
 
 ---
 
-## 12. Monitoring Analysis Progress
+## 13. Monitoring Analysis Progress
 
 ### Count analyzed tracks
 
@@ -527,7 +601,7 @@ docker logs mood-analyzer --tail 50
 
 ---
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 ### Plugin does not appear in Settings → Plugins
 
@@ -584,7 +658,8 @@ Common causes:
 
 ### Playlists contain obviously wrong tracks
 
-- The mood models are probabilistic. Some genres (classical, opera, spoken word) can produce unexpected scores.
+- The mood models score audio texture, not cultural genre context. A quiet metal track can score high on `mood_relaxed` and appear in Chill or Sleep Mix.
+- **Enable genre exclusions** — go to **Genre Exclusions** in the plugin settings. The defaults block metal, hard rock, and related genres from calm mixes. If your library was analyzed before version 0.8.3, also run the [genre migration](#10-genre-exclusions) to backfill genre data.
 - Raise the threshold for that playlist — stricter filtering removes borderline tracks.
 - Make sure **Max Tracks per Artist** is set to a reasonable value (default 3) to prevent one artist dominating with mediocre scores.
 
@@ -632,31 +707,35 @@ Wait 30 seconds, then reload the settings page in your browser.
 
 ---
 
-## 14. Building from Source
+## 15. Building from Source
 
 ### Requirements
 
-- Go 1.24 or later
+- TinyGo 0.41.0 or later (recommended — produces a smaller binary)
+- Go 1.26 or later (alternative if TinyGo is not available)
 - PowerShell (Windows) or zip utility (Linux/macOS)
 
 ### Build the plugin
 
-**Windows (PowerShell):**
-```powershell
-cd C:\path\to\navidrome-mood-plugin
-$env:GOOS = "wasip1"
-$env:GOARCH = "wasm"
-go build -buildmode=c-shared -o plugin.wasm .
+**With TinyGo (recommended):**
+```bash
+tinygo build -opt=2 -scheduler=none -no-debug -o plugin.wasm -target wasip1 -buildmode=c-shared .
+```
 
-# Package
-Remove-Item -Force mood-playlists.ndp -ErrorAction SilentlyContinue
-Compress-Archive -Path plugin.wasm,manifest.json -DestinationPath mood-playlists.zip
+**With Go 1.26+:**
+```bash
+GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o plugin.wasm .
+```
+
+**Package — Windows (PowerShell):**
+```powershell
+Remove-Item mood-playlists.ndp -ErrorAction SilentlyContinue
+Compress-Archive -Path plugin.wasm, manifest.json -DestinationPath mood-playlists.zip
 Rename-Item mood-playlists.zip mood-playlists.ndp
 ```
 
-**Linux / macOS:**
+**Package — Linux / macOS:**
 ```bash
-GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o plugin.wasm .
 zip mood-playlists.ndp plugin.wasm manifest.json
 ```
 

@@ -3,7 +3,7 @@
   "name": "Mood Playlists",
   "id": "mood-playlists",
   "author": "Craig Lusher",
-  "version": "0.8.1",
+  "version": "0.8.6",
   "description": "Audio analysis-powered mood playlists and Instant Mix. Creates 13 mood playlists (Happy, Chill, Energetic, Melancholy, Party, Aggressive, Study, Workout, Sleep, Road Trip, Cooking, Dining, Background) using an external analyzer service.",
   "website": "https://github.com/RFLundgren/navidrome-mood-plugin/blob/master/HELP.md",
   "config": {
@@ -171,6 +171,54 @@
           "title": "Creation Date Sync Schedule",
           "description": "Cron expression for when to scan and update the creation dates on all playlists.",
           "default": "0 5 * * *"
+        },
+        "run_genre_migration": {
+          "type": "boolean",
+          "title": "Run Genre Migration",
+          "description": "Patches existing analyzed tracks with genre data from Navidrome (no re-analysis). Enable once, let it run, then disable.",
+          "default": false
+        },
+        "genre_migration_schedule": {
+          "type": "string",
+          "title": "Genre Migration Schedule",
+          "description": "Cron expression for when to run the genre migration pass.",
+          "default": "0 1 * * *"
+        },
+        "chill_excluded_genres": {
+          "type": "string",
+          "title": "Chill Mix -Excluded Genres",
+          "description": "Comma-separated genre keywords excluded from Chill Mix. Leave empty for defaults: metal, hard rock, punk, hardcore, industrial, grunge, thrash",
+          "default": ""
+        },
+        "sleep_excluded_genres": {
+          "type": "string",
+          "title": "Sleep Mix -Excluded Genres",
+          "description": "Comma-separated genre keywords excluded from Sleep Mix. Leave empty for defaults: metal, hard rock, punk, hardcore, industrial, grunge, thrash, dance, techno, trance, house, edm, drum and bass",
+          "default": ""
+        },
+        "study_excluded_genres": {
+          "type": "string",
+          "title": "Study Mix -Excluded Genres",
+          "description": "Comma-separated genre keywords excluded from Study Mix. Leave empty for defaults: metal, punk, hardcore, industrial",
+          "default": ""
+        },
+        "dining_excluded_genres": {
+          "type": "string",
+          "title": "Dining Mix -Excluded Genres",
+          "description": "Comma-separated genre keywords excluded from Dining Mix. Leave empty for defaults: metal, hard rock, punk, hardcore, industrial",
+          "default": ""
+        },
+        "background_excluded_genres": {
+          "type": "string",
+          "title": "Background Mix -Excluded Genres",
+          "description": "Comma-separated genre keywords excluded from Background Mix. Leave empty for defaults: metal, hard rock, punk, hardcore, industrial",
+          "default": ""
+        },
+        "road_trip_excluded_genres": {
+          "type": "string",
+          "title": "Road Trip Mix -Excluded Genres",
+          "description": "Comma-separated genre keywords excluded from Road Trip Mix. Leave empty for defaults: metal, hardcore, industrial",
+          "default": ""
         }
       }
     },
@@ -339,6 +387,64 @@
                 {
                   "type": "Control",
                   "scope": "#/properties/aggressive_threshold"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Group",
+          "label": "Genre Exclusions",
+          "elements": [
+            {
+              "type": "HorizontalLayout",
+              "elements": [
+                {
+                  "type": "Control",
+                  "scope": "#/properties/run_genre_migration"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/genre_migration_schedule"
+                }
+              ]
+            },
+            {
+              "type": "HorizontalLayout",
+              "elements": [
+                {
+                  "type": "Control",
+                  "scope": "#/properties/chill_excluded_genres"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/sleep_excluded_genres"
+                }
+              ]
+            },
+            {
+              "type": "HorizontalLayout",
+              "elements": [
+                {
+                  "type": "Control",
+                  "scope": "#/properties/study_excluded_genres"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/dining_excluded_genres"
+                }
+              ]
+            },
+            {
+              "type": "HorizontalLayout",
+              "elements": [
+                {
+                  "type": "Control",
+                  "scope": "#/properties/background_excluded_genres"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/road_trip_excluded_genres"
                 }
               ]
             }
