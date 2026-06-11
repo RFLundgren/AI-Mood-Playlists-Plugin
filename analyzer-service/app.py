@@ -4,15 +4,19 @@ Uses essentia-tensorflow with Discogs-EffNet embeddings to extract:
 - Mood scores: happy, sad, relaxed, aggressive, party
 - Danceability, BPM, energy
 
-Genre and BPM context is used to improve classification accuracy.
+Genre/BPM context boosts and optional Last.fm crowd-sourced tag integration
+are used to improve classification accuracy.
 
 Run with: uvicorn app:app --host 0.0.0.0 --port 8000
 """
 
+import json
 import logging
 import os
 import subprocess
 import tempfile
+import urllib.parse
+import urllib.request
 
 import mutagen
 import numpy as np
@@ -22,7 +26,7 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Mood Analyzer", version="1.2.2")
+app = FastAPI(title="Mood Analyzer", version="1.3.0")
 
 MODELS_DIR = os.environ.get("MODELS_DIR", "/app/models")
 ANALYSIS_DURATION = 120.0  # seconds — cap audio loaded per track for predictable analysis time
@@ -110,6 +114,108 @@ BPM_DANCEABILITY_BOOST = {
 }
 
 
+# ── Last.fm Tag Boosts ────────────────────────────────────────
+
+LASTFM_API_BASE = "https://ws.audioscrobbler.com/2.0/"
+
+# Crowd-sourced tag keywords → score adjustments.
+# Each keyword is applied at most once even if multiple tags match.
+# Total per-field delta is capped at ±0.20 to limit Last.fm influence.
+LASTFM_TAG_BOOSTS = {
+    # Mood/feel tags
+    "chill":      {"mood_relaxed": 0.12, "mood_aggressive": -0.05},
+    "chillout":   {"mood_relaxed": 0.12, "mood_aggressive": -0.05},
+    "relax":      {"mood_relaxed": 0.10},        # relax / relaxing / relaxed
+    "calm":       {"mood_relaxed": 0.10},
+    "mellow":     {"mood_relaxed": 0.08},
+    "peaceful":   {"mood_relaxed": 0.08},
+    "sleep":      {"mood_relaxed": 0.08, "mood_aggressive": -0.05},
+    "acoustic":   {"mood_relaxed": 0.08},
+    "ambient":    {"mood_relaxed": 0.10, "mood_aggressive": -0.08},
+    "atmospheric":{"mood_relaxed": 0.08},
+    "folk":       {"mood_relaxed": 0.08},
+    "classical":  {"mood_relaxed": 0.10},
+    "jazz":       {"mood_relaxed": 0.06},
+    "happy":      {"mood_happy": 0.12},
+    "feel good":  {"mood_happy": 0.12},
+    "uplift":     {"mood_happy": 0.10},          # uplifting / uplifted
+    "joyful":     {"mood_happy": 0.08},
+    "upbeat":     {"mood_happy": 0.08, "danceability": 0.05},
+    "sad":        {"mood_sad": 0.12, "mood_happy": -0.05},
+    "melanchol":  {"mood_sad": 0.12},            # melancholy / melancholic
+    "depress":    {"mood_sad": 0.08},
+    "heartbreak": {"mood_sad": 0.08},
+    "aggressive": {"mood_aggressive": 0.12},
+    "angry":      {"mood_aggressive": 0.10},
+    "brutal":     {"mood_aggressive": 0.15, "mood_relaxed": -0.10},
+    "heavy":      {"mood_aggressive": 0.10, "mood_relaxed": -0.08},
+    "party":      {"mood_party": 0.12, "danceability": 0.08},
+    "danc":       {"danceability": 0.12, "mood_party": 0.08},   # dance / danceable
+    "club":       {"danceability": 0.08, "mood_party": 0.08},
+    "energetic":  {"danceability": 0.08, "mood_party": 0.05},
+    # Genre tags reinforcing GENRE_BOOSTS for tracks missing local genre metadata
+    "metal":      {"mood_aggressive": 0.12, "mood_relaxed": -0.10},
+    "thrash":     {"mood_aggressive": 0.15, "mood_relaxed": -0.10},
+    "death":      {"mood_aggressive": 0.15, "mood_relaxed": -0.10},  # death metal
+    "hardcore":   {"mood_aggressive": 0.12, "mood_relaxed": -0.08},
+    "punk":       {"mood_aggressive": 0.08},
+    "grunge":     {"mood_aggressive": 0.06, "mood_sad": 0.05},
+    "industrial": {"mood_aggressive": 0.10},
+    "blues":      {"mood_sad": 0.08, "mood_relaxed": 0.05},
+}
+
+
+def _get_lastfm_tags(artist: str, title: str, api_key: str) -> list:
+    """Fetch top tags for a track from Last.fm. Returns lowercased tag names."""
+    if not api_key or not artist or not title:
+        return []
+    try:
+        params = urllib.parse.urlencode({
+            "method": "track.getTopTags",
+            "artist": artist,
+            "track": title,
+            "api_key": api_key,
+            "format": "json",
+            "autocorrect": 1,
+        })
+        req = urllib.request.Request(
+            f"{LASTFM_API_BASE}?{params}",
+            headers={"User-Agent": "navidrome-mood-analyzer/1.3.0"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+        if "error" in data:
+            return []
+        tags = data.get("toptags", {}).get("tag", [])
+        if isinstance(tags, dict):  # single-tag edge case from Last.fm API
+            tags = [tags]
+        return [t["name"].lower() for t in tags[:10] if isinstance(t, dict) and t.get("name")]
+    except Exception as e:
+        logger.debug(f"Last.fm lookup failed for {artist!r} - {title!r}: {e}")
+        return []
+
+
+def _apply_lastfm_boosts(scores: dict, tags: list) -> dict:
+    """Apply Last.fm tag-based score adjustments. Each keyword matched at most once."""
+    if not tags:
+        return scores
+    adjusted = dict(scores)
+    field_delta = {}
+
+    for keyword, boosts in LASTFM_TAG_BOOSTS.items():
+        if any(keyword in tag for tag in tags):
+            for field, delta in boosts.items():
+                field_delta[field] = field_delta.get(field, 0.0) + delta
+
+    max_delta = 0.20
+    for field, delta in field_delta.items():
+        if field in adjusted:
+            capped = max(-max_delta, min(max_delta, delta))
+            adjusted[field] = round(max(0.0, min(1.0, adjusted[field] + capped)), 4)
+
+    return adjusted
+
+
 def _apply_context_boosts(scores, genre, artist, bpm):
     """Adjust raw essentia scores based on genre/artist/BPM context."""
     adjusted = dict(scores)
@@ -142,9 +248,11 @@ def _apply_context_boosts(scores, genre, artist, bpm):
 
 class AnalyzeRequest(BaseModel):
     file_path: str
+    lastfm_api_key: str = ""
 
 class AnalyzeUrlRequest(BaseModel):
     url: str
+    lastfm_api_key: str = ""
 
 
 @app.get("/health")
@@ -159,7 +267,7 @@ def health():
         return {"status": "error", "message": f"Unexpected error: {e}"}
 
 
-def _analyze_path(file_path: str) -> dict:
+def _analyze_path(file_path: str, api_key: str = "") -> dict:
     es = _load_essentia()
     results = {}
 
@@ -254,6 +362,12 @@ def _analyze_path(file_path: str) -> dict:
     # Apply genre/BPM context boosts
     results = _apply_context_boosts(results, genre, artist, results.get("bpm", 0))
 
+    # Apply Last.fm crowd-sourced tag boosts
+    lastfm_tags = _get_lastfm_tags(artist, title, api_key)
+    if lastfm_tags:
+        logger.debug(f"Last.fm tags for {artist!r} - {title!r}: {lastfm_tags}")
+        results = _apply_lastfm_boosts(results, lastfm_tags)
+
     return {"file_path": file_path, "title": title, "artist": artist,
             "album": album, "genre": genre, **results}
 
@@ -262,7 +376,7 @@ def _analyze_path(file_path: str) -> dict:
 def analyze_file(req: AnalyzeRequest):
     if not os.path.exists(req.file_path):
         raise HTTPException(status_code=404, detail=f"File not found: {req.file_path}")
-    return _analyze_path(req.file_path)
+    return _analyze_path(req.file_path, req.lastfm_api_key)
 
 
 @app.post("/api/analysis/url")
@@ -298,7 +412,7 @@ def analyze_url(req: AnalyzeUrlRequest):
             last_line = err.splitlines()[-1] if err else "ffmpeg failed"
             raise Exception(last_line)
 
-        return _analyze_path(tmp_path)
+        return _analyze_path(tmp_path, req.lastfm_api_key)
     except Exception as e:
         logger.error(f"URL analysis error ({type(e).__name__}): {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch or analyze URL: {e}")

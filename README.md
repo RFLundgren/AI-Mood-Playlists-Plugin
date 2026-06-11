@@ -151,7 +151,7 @@ You can also use any custom service that implements this API.
 
 ### Context-Aware Scoring
 
-Raw essentia scores are adjusted using track metadata for better accuracy. Without this, genres like Drum & Bass score near-zero on danceability despite being inherently danceable.
+Raw essentia scores are adjusted using track metadata and optional crowd-sourced tags for better accuracy. Without this, genres like Drum & Bass score near-zero on danceability despite being inherently danceable.
 
 **Genre boosts** — 25+ genre keywords nudge scores based on the track's genre tag:
 
@@ -167,6 +167,8 @@ Raw essentia scores are adjusted using track metadata for better accuracy. Witho
 | Blues / Emo | sad +0.10–0.15 |
 
 **BPM correction** — DnB is often detected at half-time (86 BPM instead of 172). Tracks with 80–95 BPM in DnB/Jungle genres are corrected to double-time, which triggers a +0.20 danceability boost for the 140–180 BPM range.
+
+**Last.fm tag boosts** — If you configure a Last.fm API key, the analyzer fetches the track's top crowd-sourced listener tags and applies an additional layer of adjustments. This adds cultural context that essentia's audio texture models cannot infer — a Nightwish track crowd-tagged "symphonic metal" gets its relaxed score pushed down even if the audio texture is quiet, and a folk/acoustic track tagged "chill" gets a relaxed boost. Influence is capped at ±0.20 per score field so it blends with rather than overrides the essentia signal.
 
 ## Genre Exclusions
 
@@ -226,6 +228,7 @@ All settings are configurable from Navidrome's plugin settings UI:
 | Road Trip Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Road Trip Mix |
 | Run Genre Migration | `false` | One-time backfill of genre data into existing analyzed tracks |
 | Genre Migration Schedule | `0 1 * * *` | Cron expression for the genre migration pass |
+| Last.fm API Key | _(empty)_ | Optional API key for crowd-sourced tag boosts (free at last.fm/api) |
 
 Composite mood conditions (requires/excludes thresholds) are fixed in code and not configurable via the UI.
 
@@ -306,7 +309,6 @@ Contributions welcome! Some ideas:
 - [ ] Per-user mood playlists
 - [ ] "Mood of the day" rotating playlist
 - [ ] Configurable thresholds for composite moods via the settings UI
-- [ ] Last.fm tag integration for cultural mood context (crowd-sourced tags to complement audio analysis)
 
 ## License
 

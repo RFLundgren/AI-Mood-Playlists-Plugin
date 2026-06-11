@@ -16,11 +16,12 @@ This guide walks you through every step needed to get the Mood Playlists plugin 
 8. [Step 6 — Generate the Playlists](#8-step-6--generate-the-playlists)
 9. [Understanding the Playlists](#9-understanding-the-playlists)
 10. [Genre Exclusions](#10-genre-exclusions)
-11. [Playlist Dates & Timestamps](#11-playlist-dates--timestamps)
-12. [Configuration Reference](#12-configuration-reference)
-13. [Monitoring Analysis Progress](#13-monitoring-analysis-progress)
-14. [Troubleshooting](#14-troubleshooting)
-15. [Building from Source](#15-building-from-source)
+11. [Last.fm Tag Integration](#11-lastfm-tag-integration)
+12. [Playlist Dates & Timestamps](#12-playlist-dates--timestamps)
+13. [Configuration Reference](#13-configuration-reference)
+14. [Monitoring Analysis Progress](#14-monitoring-analysis-progress)
+15. [Troubleshooting](#15-troubleshooting)
+16. [Building from Source](#16-building-from-source)
 
 ---
 
@@ -485,7 +486,45 @@ docker logs navidrome -f | grep -i "genre migration"
 
 ---
 
-## 11. Playlist Dates & Timestamps
+## 11. Last.fm Tag Integration
+
+### Why it helps
+
+Essentia's TensorFlow models analyze audio texture — spectral brightness, dynamics, tempo. They cannot infer cultural genre context. A slow, quiet Nightwish track scores high on `mood_relaxed` because its audio texture is calm, even though any listener would identify it as symphonic metal. Genre exclusions help for tracks with genre tags, but tracks without a local genre tag have no fallback.
+
+Last.fm crowd-sourced tags add that missing cultural signal. If thousands of listeners have tagged a track "symphonic metal" or "heavy", the analyzer can push its `mood_relaxed` score down and `mood_aggressive` score up — regardless of what the audio texture alone suggests.
+
+### Getting a free API key
+
+1. Go to [www.last.fm/api/account/create](https://www.last.fm/api/account/create) and sign in
+2. Fill in Application name (e.g. "navidrome-mood") and Description (anything)
+3. Copy the **API key** shown after creation
+
+### Configuring it
+
+In Navidrome Settings → Plugins → Mood Playlists, find the **Last.fm API Key** field in the Analyzer Service section. Paste your key and save. New analyses will automatically include Last.fm lookups.
+
+> **Note:** Last.fm integration only affects tracks analyzed *after* the key is configured. To apply it to your existing library, re-analyze by enabling **Re-analyze Uncertain** or temporarily bumping **Random Re-analysis %** to a higher value for one run.
+
+### What it adjusts
+
+The analyzer fetches the top 10 listener tags for each track and matches them against known mood/genre keywords. Each matching keyword applies a score adjustment capped at ±0.20 per field in total across all matching tags. Example adjustments:
+
+| Matching tags | Effect |
+|---------------|--------|
+| chill, chillout, relax | mood_relaxed +0.10–0.20 |
+| metal, heavy, brutal | mood_aggressive +0.12–0.20, mood_relaxed -0.10–0.20 |
+| sad, melancholy, heartbreak | mood_sad +0.08–0.20 |
+| dance, party, club | danceability +0.08–0.20, mood_party +0.08–0.20 |
+| happy, uplifting, feel good | mood_happy +0.08–0.20 |
+
+### Failure handling
+
+If the Last.fm API is unavailable or returns an error, the track is analyzed using essentia + genre boosts only — no scores are lost or zeroed. The lookup has a 5-second timeout. Failures are logged at DEBUG level.
+
+---
+
+## 12. Playlist Dates & Timestamps
 
 The plugin can help you keep track of when playlists were created or last refreshed. This information is saved using the Subsonic API so that it can be read by third-party mobile and desktop clients (like Symfonium or Feishin), and optionally displayed directly in Navidrome's Web UI.
 
@@ -503,7 +542,7 @@ Navidrome's Web UI does not natively display playlist descriptions or comments. 
 
 ---
 
-## 12. Configuration Reference
+## 13. Configuration Reference
 
 ### Cron schedule format
 
@@ -561,12 +600,13 @@ Navidrome's Web UI does not natively display playlist descriptions or comments. 
 | `road_trip_excluded_genres` | _(see defaults)_ | — | — | Comma-separated genre keywords blocked from Road Trip Mix. Empty = use defaults. |
 | `run_genre_migration` | `false` | — | — | Enable one-time genre backfill for existing analyzed tracks. Disable after completion. |
 | `genre_migration_schedule` | `0 1 * * *` | — | — | Cron expression for the genre migration pass |
+| `lastfm_api_key` | _(empty)_ | — | — | Optional Last.fm API key. When set, the analyzer fetches crowd-sourced listener tags per track and applies mood adjustments (±0.20 cap per field). Free key at last.fm/api |
 
 > **Cron note:** Navidrome validates the minute field (first position) against a maximum of 23. Keep minute values between 0 and 23 to avoid a schedule registration error.
 
 ---
 
-## 13. Monitoring Analysis Progress
+## 14. Monitoring Analysis Progress
 
 ### Count analyzed tracks
 
@@ -601,7 +641,7 @@ docker logs mood-analyzer --tail 50
 
 ---
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 ### Plugin does not appear in Settings → Plugins
 
@@ -707,7 +747,7 @@ Wait 30 seconds, then reload the settings page in your browser.
 
 ---
 
-## 15. Building from Source
+## 16. Building from Source
 
 ### Requirements
 

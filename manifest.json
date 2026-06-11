@@ -3,7 +3,7 @@
   "name": "Mood Playlists",
   "id": "mood-playlists",
   "author": "Craig Lusher",
-  "version": "0.8.6",
+  "version": "0.9.0",
   "description": "Audio analysis-powered mood playlists and Instant Mix. Creates 13 mood playlists (Happy, Chill, Energetic, Melancholy, Party, Aggressive, Study, Workout, Sleep, Road Trip, Cooking, Dining, Background) using an external analyzer service.",
   "website": "https://github.com/RFLundgren/navidrome-mood-plugin/blob/master/HELP.md",
   "config": {
@@ -219,6 +219,12 @@
           "title": "Road Trip Mix -Excluded Genres",
           "description": "Comma-separated genre keywords excluded from Road Trip Mix. Leave empty for defaults: metal, hardcore, industrial",
           "default": ""
+        },
+        "lastfm_api_key": {
+          "type": "string",
+          "title": "Last.fm API Key",
+          "description": "Optional. Improves mood accuracy using crowd-sourced listener tags (e.g. 'chill', 'metal', 'melancholy'). Get a free key at https://www.last.fm/api/account/create",
+          "default": ""
         }
       }
     },
@@ -311,6 +317,18 @@
                 {
                   "type": "Control",
                   "scope": "#/properties/max_concurrency"
+                }
+              ]
+            },
+            {
+              "type": "HorizontalLayout",
+              "elements": [
+                {
+                  "type": "Control",
+                  "scope": "#/properties/lastfm_api_key",
+                  "options": {
+                    "format": "password"
+                  }
                 }
               ]
             }
