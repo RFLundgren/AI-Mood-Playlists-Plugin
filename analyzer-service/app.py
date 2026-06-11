@@ -26,6 +26,12 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Suppress noisy essentia/TensorFlow warnings that flood logs
+logging.getLogger("essentia").setLevel(logging.ERROR)
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+import warnings
+warnings.filterwarnings("ignore")
+
 app = FastAPI(title="Mood Analyzer", version="1.3.0")
 
 MODELS_DIR = os.environ.get("MODELS_DIR", "/app/models")
