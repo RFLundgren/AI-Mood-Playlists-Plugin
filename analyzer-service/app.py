@@ -191,7 +191,7 @@ def _get_lastfm_tags(artist: str, title: str, api_key: str) -> list:
             tags = [tags]
         return [t["name"].lower() for t in tags[:10] if isinstance(t, dict) and t.get("name")]
     except Exception as e:
-        logger.debug(f"Last.fm lookup failed for {artist!r} - {title!r}: {e}")
+        logger.warning(f"Last.fm lookup failed for {artist!r} - {title!r}: {e}")
         return []
 
 
@@ -365,7 +365,7 @@ def _analyze_path(file_path: str, api_key: str = "") -> dict:
     # Apply Last.fm crowd-sourced tag boosts
     lastfm_tags = _get_lastfm_tags(artist, title, api_key)
     if lastfm_tags:
-        logger.debug(f"Last.fm tags for {artist!r} - {title!r}: {lastfm_tags}")
+        logger.info(f"Last.fm tags for {artist!r} - {title!r}: {lastfm_tags}")
         results = _apply_lastfm_boosts(results, lastfm_tags)
 
     return {"file_path": file_path, "title": title, "artist": artist,

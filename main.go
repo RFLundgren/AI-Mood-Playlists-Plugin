@@ -507,10 +507,13 @@ func runAnalysis() int32 {
 		songs := result.SubsonicResponse.SearchResult3.Song
 		endOfLibrary := len(songs) == 0 || len(songs) < batchSize
 
+		forceAll := configBool("force_reanalyze_all", false)
 		for _, song := range songs {
 			// Skip tracks already analyzed — avoids unnecessary work when library is fully analyzed
-			if existing, ok, _ := host.KVStoreGet("mood:" + song.ID); ok && len(existing) > 0 {
-				continue
+			if !forceAll {
+				if existing, ok, _ := host.KVStoreGet("mood:" + song.ID); ok && len(existing) > 0 {
+					continue
+				}
 			}
 			taskData, _ := json.Marshal(pluginTask{
 				ID:     song.ID,
