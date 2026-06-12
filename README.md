@@ -168,7 +168,35 @@ Raw essentia scores are adjusted using track metadata and optional crowd-sourced
 
 **BPM correction** — DnB is often detected at half-time (86 BPM instead of 172). Tracks with 80–95 BPM in DnB/Jungle genres are corrected to double-time, which triggers a +0.20 danceability boost for the 140–180 BPM range.
 
-**Last.fm tag boosts** — If you configure a Last.fm API key, the analyzer fetches the track's top crowd-sourced listener tags and applies an additional layer of adjustments. This adds cultural context that essentia's audio texture models cannot infer — a Nightwish track crowd-tagged "symphonic metal" gets its relaxed score pushed down even if the audio texture is quiet, and a folk/acoustic track tagged "chill" gets a relaxed boost. Influence is capped at ±0.20 per score field so it blends with rather than overrides the essentia signal.
+**Last.fm tag boosts** — If you configure a Last.fm API key, the analyzer fetches the track's top crowd-sourced listener tags and applies an additional layer of adjustments. This adds cultural context that essentia's audio texture models cannot infer — a Nightwish track crowd-tagged "symphonic metal" gets its relaxed score pushed down even if the audio texture is quiet, and a folk/acoustic track tagged "chill" gets a relaxed boost. Influence is capped at ±0.20 per score field so it blends with rather than overrides the essentia signal. See [Last.fm Integration](#lastfm-integration) for setup instructions.
+
+## Last.fm Integration
+
+Essentia's models score audio texture — they cannot tell the difference between a quiet metal ballad and an ambient track. Last.fm integration adds crowd-sourced cultural context on top of the audio analysis, improving accuracy for tracks that are misclassified due to their audio texture alone.
+
+### Setup
+
+1. Get a free API key at [last.fm/api/account/create](https://www.last.fm/api/account/create)
+2. In Navidrome → **Settings > Plugins > Mood Playlists**, find the **Last.fm API Key** field in the Analyzer Service section
+3. Paste your key and save
+
+New tracks analyzed after this point will automatically include Last.fm lookups. Tracks already in the library need to be re-analyzed — see [Re-analyzing Your Library](#re-analyzing-your-library).
+
+### What it does
+
+For each track, the analyzer fetches the top 10 listener tags from Last.fm and applies score adjustments based on keyword matching. Examples:
+
+| Tags | Effect |
+|------|--------|
+| metal, heavy, brutal | mood_aggressive +up to 0.20, mood_relaxed -up to 0.20 |
+| chill, relax, acoustic | mood_relaxed +up to 0.20 |
+| sad, melancholy | mood_sad +up to 0.20 |
+| dance, party, club | danceability +up to 0.20, mood_party +up to 0.20 |
+| happy, uplifting | mood_happy +up to 0.20 |
+
+The total influence per score field is capped at ±0.20 so Last.fm blends with rather than overrides the essentia signal. If Last.fm is unavailable or a track is not found, analysis falls back to essentia + genre boosts only — no scores are lost.
+
+> **Note:** Last.fm only has data for widely scrobbled tracks. Rare releases, demos, and unreleased tracks may not be found and will be silently skipped.
 
 ## Genre Exclusions
 
@@ -231,6 +259,24 @@ All settings are configurable from Navidrome's plugin settings UI:
 | Last.fm API Key | _(empty)_ | Optional API key for crowd-sourced tag boosts (free at last.fm/api) |
 
 Composite mood conditions (requires/excludes thresholds) are fixed in code and not configurable via the UI.
+
+## Re-analyzing Your Library
+
+The plugin only analyzes each track once by default. If you want to re-analyze your entire library — for example after adding a Last.fm API key, or after updating the analyzer Docker image — use the **Force Re-analyze Entire Library** toggle:
+
+1. In plugin settings, enable **Force Re-analyze Entire Library**
+2. Set **Analysis Schedule** to fire in the next minute (e.g. if it's 14:35 UTC, set to `36 14 * * *`)
+3. Save and wait for the run to start — you'll see `Queued XXXX tracks` in the Navidrome logs
+4. **Important:** once queuing starts, restore **Analysis Schedule** back to `0 2 * * *` and **disable Force Re-analyze Entire Library** — leaving it enabled will re-analyze everything on every subsequent run
+
+Monitor progress in the Navidrome logs:
+```bash
+docker logs navidrome -f | grep "mood-playlists"
+```
+
+Watch for `Reached end of library` to confirm completion. With a large library and 2 workers, expect several hours for a full re-analysis pass.
+
+After analysis completes, trigger a playlist refresh by temporarily setting **Playlist Refresh Schedule** to the next minute, then restore it to `0 3 * * 0`.
 
 ## How It Works
 
