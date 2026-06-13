@@ -1,25 +1,35 @@
 # navidrome-mood-plugin
 
-A [Navidrome](https://www.navidrome.org/) plugin that creates mood-based playlists using real audio analysis. It uses [essentia-tensorflow](https://essentia.upf.edu/) with Discogs-EffNet embeddings to analyze your music library for mood, energy, BPM, and danceability, then automatically generates and refreshes 13 mood playlists.
+**Your music library, understood.** This plugin analyzes the actual audio in your Navidrome library using deep learning, then builds and maintains 13 mood playlists that evolve as your collection grows — automatically, on a schedule, with no manual tagging required.
 
-Works with any Subsonic-compatible client (Symfonium, Sublime Music, etc.).
+Unlike metadata-based playlist tools, this one hears what you hear: a track that sounds aggressive gets scored aggressive, regardless of what genre tag it has. A quiet metal ballad in the wrong playlist? The three-layer scoring system catches it. A rare track that essentia misclassifies? Last.fm's crowd intelligence corrects it.
 
-## Features
+Works with any Subsonic-compatible client — Symfonium, Sublime Music, Ultrasonic, DSub, and others.
 
-- **13 Mood Playlists** — 6 simple moods + 7 composite scenario playlists, all auto-created and refreshed
-- **Mood-Aware Instant Mix** — Replaces the default Instant Mix with mood-similarity matching (Euclidean distance across mood vectors)
-- **Scheduled Analysis** — Periodically scans your library for new tracks and sends them to the analyzer
-- **Scheduled Refresh** — Regenerates mood playlists on a cron schedule so they evolve as your library grows
-- **Genre Exclusions** — Per-playlist configurable genre blocklists prevent misclassified tracks from appearing in calm/chill mixes
-- **Playlist Dates & Timestamps** — Automatically tracks when mood playlists are generated and syncs creation dates to all your playlists (visible in Subsonic clients and optionally the Navidrome UI)
-- **Fully Configurable** — Mood thresholds, genre exclusions, playlist sizes, analysis/refresh schedules all configurable from the plugin settings UI
+---
 
-### Mood Playlists
+## What Makes This Different
 
-**Simple moods** — single score above a configurable threshold:
+Most music organization tools rely on metadata — genre tags you or someone else typed in. This plugin measures the music itself.
 
-| Playlist | Based on | Default Threshold |
-|----------|----------|-------------------|
+**Layer 1 — Deep audio analysis.** [Essentia-TensorFlow](https://essentia.upf.edu/) with Discogs-EffNet embeddings extracts mood, energy, danceability, and BPM from the raw audio waveform. Trained on 400,000+ tracks from the Discogs catalog.
+
+**Layer 2 — Genre and BPM context correction.** Audio texture models have known blind spots. Drum & Bass scores near-zero on danceability because its 170 BPM patterns don't match training data. Metal ballads score high on relaxed because the audio texture is quiet. The genre boost layer adds 25+ keyword-matched corrections that restore what genre-blind audio analysis gets wrong.
+
+**Layer 3 — Crowd-sourced cultural intelligence.** With a free Last.fm API key, each track's top crowd-sourced listener tags are fetched and used for a third adjustment pass. Nightwish crowd-tagged "symphonic metal" gets its relaxed score pushed down. A folk track tagged "chill" gets a relaxed boost. This layer adds cultural context that no audio model can infer from the waveform alone.
+
+The result is 13 mood playlists that genuinely reflect how your music feels — not just what genre someone called it.
+
+---
+
+## What You Get
+
+### 13 Mood Playlists, Auto-Built and Auto-Refreshed
+
+**Simple moods** — a single score above a configurable threshold:
+
+| Playlist | Signal | Default Threshold |
+|----------|--------|-------------------|
 | Happy Mix | mood_happy | 0.55 |
 | Chill Mix | mood_relaxed | 0.40 |
 | Energetic Mix | danceability | 0.60 |
@@ -27,10 +37,10 @@ Works with any Subsonic-compatible client (Symfonium, Sublime Music, etc.).
 | Party Mix | mood_party | 0.55 |
 | Aggressive Mix | mood_aggressive | 0.55 |
 
-**Composite moods** — require a positive attribute AND cap negative ones:
+**Composite scenario playlists** — require a positive signal AND cap negative ones:
 
-| Playlist | Requires | Excludes | Sorted by |
-|----------|---------|---------|-----------|
+| Playlist | Requires | Caps | Sorted by |
+|----------|----------|------|-----------|
 | Study Mix | relaxed ≥ 0.40 | aggressive ≥ 0.45, party ≥ 0.50 | relaxed |
 | Workout Mix | danceability ≥ 0.50 | relaxed ≥ 0.60, sad ≥ 0.50 | danceability |
 | Sleep Mix | relaxed ≥ 0.30 | aggressive ≥ 0.30, party ≥ 0.35 | relaxed |
@@ -39,57 +49,64 @@ Works with any Subsonic-compatible client (Symfonium, Sublime Music, etc.).
 | Dining Mix | relaxed ≥ 0.40 | aggressive ≥ 0.40 | relaxed |
 | Background Mix | relaxed ≥ 0.35 | aggressive ≥ 0.50, party ≥ 0.55 | relaxed |
 
-Genre exclusions are applied on top of all mood conditions — see [Genre Exclusions](#genre-exclusions) below.
+Genre exclusions are applied on top — hard blocklists ensure misclassified tracks never appear in calm mixes regardless of their audio scores. See [Genre Exclusions](#genre-exclusions).
 
-## Documentation
+### Mood-Aware Instant Mix
 
-For detailed setup instructions, full configuration reference, troubleshooting, and monitoring guidance, see **[HELP.md](HELP.md)**.
+Replaces Navidrome's default Instant Mix with real mood-similarity matching. When you start an Instant Mix from any analyzed track, it calculates Euclidean distance across the full mood vector and returns the closest matches — not random tracks from the same genre, but tracks that actually feel similar.
+
+### Fully Automated
+
+- New tracks analyzed on a daily schedule (default: 2 AM)
+- Playlists refreshed weekly (default: Sunday 3 AM) so they evolve as your library grows
+- Uncertain tracks (low-confidence scores) automatically re-queued for re-analysis
+- Optional random re-analysis percentage keeps scores fresh over time
+
+---
 
 ## Quick Start
 
 ### 1. Start the Analyzer Service
-The plugin needs an external service to perform audio analysis (essentia can't run inside WASM). A ready-to-use **multi-arch** Docker image (supporting amd64 and arm64/Raspberry Pi) is provided.
 
-**Important for ARM64 Users:** Since there are no pre-built `essentia-tensorflow` wheels for ARM64, the Dockerfile will compile Essentia from source. It is highly recommended to **build the image natively on your device** rather than using emulated multi-arch builds, which are extremely slow and prone to memory issues.
+The plugin needs an external service to run the audio analysis (essentia can't run inside WASM). A ready-to-use **multi-arch** Docker image (amd64 + arm64/Raspberry Pi) is provided.
 
-```bash
-cd analyzer-service
-# On Raspberry Pi, this will compile Essentia from source (~15-20 mins on Pi 5)
-docker build --build-arg TARGETARCH=arm64 -t mood-analyzer .
-```
-
-Or add it to your existing `docker-compose.yml`:
+Add it to your existing `docker-compose.yml`:
 
 ```yaml
-mood-analyzer:
-  build:
-    context: ./analyzer-service
-  container_name: mood-analyzer
-  restart: unless-stopped
+services:
+  navidrome:
+    # ... your existing navidrome config ...
+    networks:
+      - mood
+
+  mood-analyzer:
+    image: ghcr.io/rflundgren/navidrome-mood-plugin:latest
+    container_name: mood-analyzer
+    restart: unless-stopped
+    volumes:
+      - /path/to/your/music:/music:ro
+    networks:
+      - mood
+
+networks:
+  mood:
+    driver: bridge
 ```
 
-Or use the published image from the latest release:
-
-```yaml
-mood-analyzer:
-  image: ghcr.io/rflundgren/navidrome-mood-plugin:latest
-  container_name: mood-analyzer
-  restart: unless-stopped
-```
+> **ARM64 users (Raspberry Pi):** The published image supports arm64. If you prefer to build locally, `cd analyzer-service && docker build --build-arg TARGETARCH=arm64 -t mood-analyzer .` will compile Essentia from source (~15–20 minutes on a Pi 5).
 
 ### 2. Install the Plugin
 
-1. Download `mood-playlists.ndp` from [Releases](https://github.com/RFLundgren/navidrome-mood-plugin/releases) (or [build from source](#building-from-source))
+1. Download `mood-playlists.ndp` from [Releases](https://github.com/RFLundgren/navidrome-mood-plugin/releases)
 2. Copy it to your Navidrome plugins directory: `<navidrome-data>/plugins/`
-3. Restart Navidrome (or it auto-loads if `ND_PLUGINS_AUTORELOAD=true`)
+3. Restart Navidrome (or set `ND_PLUGINS_AUTORELOAD=true`)
 4. Go to **Settings > Plugins > Mood Playlists** and approve permissions
-5. Set the **Analyzer Service URL** to your analyzer (e.g., `http://mood-analyzer:8000`)
+5. Set **Analyzer Service URL** to `http://mood-analyzer:8000`
+6. Set **Music Mount Path** to the path your music is mounted at in the analyzer container (e.g. `/music`)
 
-### 3. Configure Agent Precedence (For Instant Mix)
+### 3. Configure Agent Precedence (Instant Mix only)
 
-If you are using multiple Navidrome metadata agents (like AudioMuse-AI, Last.fm, etc.), you must tell Navidrome to query the Mood plugin first for Instant Mix to work correctly.
-
-Add the `ND_AGENTS` environment variable to your Navidrome configuration and list `mood-playlists` **before** other similar-song providers:
+If you use multiple Navidrome metadata agents, list `mood-playlists` first so Instant Mix uses this plugin's similarity matching:
 
 ```yaml
 ND_AGENTS: mood-playlists,audiomuseai,lastfm,listenbrainz
@@ -97,117 +114,72 @@ ND_AGENTS: mood-playlists,audiomuseai,lastfm,listenbrainz
 
 ### 4. Done
 
-The plugin will:
-- Analyze unanalyzed tracks daily at 2 AM (configurable)
-- Refresh all 13 mood playlists weekly on Sunday at 3 AM (configurable)
-- Return mood-similar tracks when you use Instant Mix on any analyzed track
+The plugin will start analyzing your library on its next scheduled run, or you can trigger an immediate analysis by temporarily setting the **Analysis Schedule** to fire in the next minute.
+
+---
 
 ## Requirements
 
-- **Navidrome** `develop` branch (plugin support requires 0.61.0+)
-- **Docker** (for the analyzer service)
+- **Navidrome** 0.61.0+ (plugin support, currently requires the `develop` branch)
+- **Docker** for the analyzer service
 - Navidrome config:
   ```yaml
   ND_PLUGINS_ENABLED: "true"
-  ND_PLUGINS_AUTORELOAD: "true"  # optional but recommended
+  ND_PLUGINS_AUTORELOAD: "true"   # optional but recommended
   ```
 
-## Analyzer Service
-
-The analyzer service (`analyzer-service/`) is a lightweight FastAPI app that wraps essentia-tensorflow. It exposes a single endpoint:
-
-```
-POST /api/analysis/file
-Content-Type: application/json
-
-{"file_path": "/music/Artist/Album/Track.m4a"}
-```
-
-Response:
-```json
-{
-  "file_path": "/music/Artist/Album/Track.m4a",
-  "title": "Track Name",
-  "artist": "Artist Name",
-  "album": "Album Name",
-  "bpm": 120.0,
-  "danceability": 0.75,
-  "mood_happy": 0.82,
-  "mood_sad": 0.15,
-  "mood_relaxed": 0.45,
-  "mood_aggressive": 0.10,
-  "mood_party": 0.68,
-  "energy": 0.55
-}
-```
-
-The Docker image (~500MB) includes:
-- `essentia-tensorflow` with pre-trained Discogs-EffNet embedding model
-- 6 mood classification heads (happy, sad, relaxed, aggressive, party) + danceability
-- BPM and energy extraction
-- Genre/BPM-aware context boosts (see below)
-
-You can also use any custom service that implements this API.
-
-### Context-Aware Scoring
-
-Raw essentia scores are adjusted using track metadata and optional crowd-sourced tags for better accuracy. Without this, genres like Drum & Bass score near-zero on danceability despite being inherently danceable.
-
-**Genre boosts** — 25+ genre keywords nudge scores based on the track's genre tag:
-
-| Genre | Adjustments |
-|-------|-------------|
-| DnB / Jungle / Drum & Bass | danceability +0.35, party +0.15, aggressive +0.10 |
-| Dance / House | danceability +0.20, party +0.10 |
-| Techno | danceability +0.25, party +0.15, aggressive +0.10 |
-| Metal | aggressive +0.25, relaxed -0.15 |
-| Ambient / Downtempo | relaxed +0.20, aggressive -0.10 |
-| Disco / Funk | danceability +0.20, party +0.15, happy +0.10 |
-| Pop | happy +0.05, danceability +0.05 |
-| Blues / Emo | sad +0.10–0.15 |
-
-**BPM correction** — DnB is often detected at half-time (86 BPM instead of 172). Tracks with 80–95 BPM in DnB/Jungle genres are corrected to double-time, which triggers a +0.20 danceability boost for the 140–180 BPM range.
-
-**Last.fm tag boosts** — If you configure a Last.fm API key, the analyzer fetches the track's top crowd-sourced listener tags and applies an additional layer of adjustments. This adds cultural context that essentia's audio texture models cannot infer — a Nightwish track crowd-tagged "symphonic metal" gets its relaxed score pushed down even if the audio texture is quiet, and a folk/acoustic track tagged "chill" gets a relaxed boost. Influence is capped at ±0.20 per score field so it blends with rather than overrides the essentia signal. See [Last.fm Integration](#lastfm-integration) for setup instructions.
+---
 
 ## Last.fm Integration
 
-Essentia's models score audio texture — they cannot tell the difference between a quiet metal ballad and an ambient track. Last.fm integration adds crowd-sourced cultural context on top of the audio analysis, improving accuracy for tracks that are misclassified due to their audio texture alone.
+Essentia scores audio texture. It cannot tell the difference between a quiet metal ballad and an ambient track — both have low dynamics and low brightness. Last.fm integration adds a third scoring layer using crowd-sourced listener tags, correcting for cultural context the audio models cannot infer.
 
 ### Setup
 
 1. Get a free API key at [last.fm/api/account/create](https://www.last.fm/api/account/create)
-2. In Navidrome → **Settings > Plugins > Mood Playlists**, find the **Last.fm API Key** field in the Analyzer Service section
-3. Paste your key and save
+2. In **Settings > Plugins > Mood Playlists**, paste your key into the **Last.fm API Key** field and save
 
-New tracks analyzed after this point will automatically include Last.fm lookups. Tracks already in the library need to be re-analyzed — see [Re-analyzing Your Library](#re-analyzing-your-library).
+New tracks analyzed after this will automatically include Last.fm lookups. Tracks already in your library need to be re-analyzed — see [Re-analyzing Your Library](#re-analyzing-your-library).
 
-### What it does
+### What It Does
 
-For each track, the analyzer fetches the top 10 listener tags from Last.fm and applies score adjustments based on keyword matching. Examples:
+For each track, the analyzer fetches the top 10 listener tags from Last.fm and adjusts scores based on keyword matching:
 
 | Tags | Effect |
 |------|--------|
-| metal, heavy, brutal | mood_aggressive +up to 0.20, mood_relaxed -up to 0.20 |
-| chill, relax, acoustic | mood_relaxed +up to 0.20 |
-| sad, melancholy | mood_sad +up to 0.20 |
-| dance, party, club | danceability +up to 0.20, mood_party +up to 0.20 |
-| happy, uplifting | mood_happy +up to 0.20 |
+| metal, heavy, brutal, thrash | mood_aggressive +, mood_relaxed − |
+| chill, relax, acoustic, ambient | mood_relaxed + |
+| sad, melancholy, emotional | mood_sad + |
+| dance, party, club, rave | danceability +, mood_party + |
+| happy, uplifting, feel-good | mood_happy + |
 
-The total influence per score field is capped at ±0.20 so Last.fm blends with rather than overrides the essentia signal. If Last.fm is unavailable or a track is not found, analysis falls back to essentia + genre boosts only — no scores are lost.
+Total Last.fm influence is capped at ±0.20 per score field so it blends with rather than overrides the essentia signal. If a track isn't found on Last.fm, analysis falls back to essentia + genre boosts — no scores are lost.
 
-> **Note:** Last.fm only has data for widely scrobbled tracks. Rare releases, demos, and unreleased tracks may not be found and will be silently skipped.
+> **Note:** Last.fm only has data for widely scrobbled tracks. Rare releases, demos, and unreleased content may not be found and will be silently skipped.
+
+### Tuning Boost Influence
+
+Two multipliers let you control how much each correction layer contributes:
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| Genre Boost Weight | 1.0 | 0.0 = genre boosts disabled, 2.0 = double influence |
+| Last.fm Boost Weight | 1.0 | 0.0 = Last.fm disabled, 2.0 = double influence |
+
+If your library is heavily genre-tagged and accurate, you may want to increase Genre Boost Weight. If Last.fm is returning poor tags for your catalog, reduce Last.fm Boost Weight or set it to 0. Both settings live in the Analyzer Service section of the plugin config.
+
+---
 
 ## Genre Exclusions
 
-The essentia models analyze audio texture — they detect tempo, spectral brightness, and dynamics, not cultural genre context. This means a slow, quiet metal track can legitimately score high on `mood_relaxed` and appear in the Chill or Sleep Mix, even though it is clearly not appropriate there.
+Genre exclusions are hard blocklists applied during playlist generation. Tracks whose genre tag matches any keyword in a mix's exclusion list are ineligible for that mix, regardless of their mood scores.
 
-Genre exclusions solve this with hard blocklists applied during playlist generation. Tracks whose genre tag matches any keyword in a mix's exclusion list are ineligible for that mix, regardless of their mood scores.
+This solves a fundamental limitation of audio texture models: a slow, quiet metal track can legitimately score high on `mood_relaxed` — the waveform really is quiet. Genre exclusions ensure it never appears in Chill or Sleep Mix.
 
 **Default exclusions:**
 
-| Mix | Excluded genres (keyword match) |
-|-----|---------------------------------|
+| Mix | Excluded genres (substring match, case-insensitive) |
+|-----|-----------------------------------------------------|
 | Chill | metal, hard rock, punk, hardcore, industrial, grunge, thrash |
 | Sleep | metal, hard rock, punk, hardcore, industrial, grunge, thrash, dance, techno, trance, house, edm, drum and bass |
 | Study | metal, punk, hardcore, industrial |
@@ -215,146 +187,137 @@ Genre exclusions solve this with hard blocklists applied during playlist generat
 | Background | metal, hard rock, punk, hardcore, industrial |
 | Road Trip | metal, hardcore, industrial |
 
-Matching is case-insensitive substring — `metal` matches `Heavy Metal`, `Power Metal`, `Symphonic Metal`, etc.
+Each mix has its own config field (`chill_excluded_genres`, `sleep_excluded_genres`, etc.). Leave empty to use the defaults above. Enter a comma-separated list to override entirely.
 
-**Customising exclusions:** Each mix has its own config field (`chill_excluded_genres`, `sleep_excluded_genres`, etc.) in the Genre Exclusions section of the plugin settings. Leave the field empty to use the defaults above. Enter a comma-separated list to override entirely.
+**Genre migration:** If tracks were analyzed before genre exclusions were introduced, existing KV entries may lack genre data. Enable **Run Genre Migration** in the plugin settings to backfill genre from Navidrome into all existing entries — no re-analysis required. Disable it again after logs show `Genre migration complete`.
 
-**Genre migration:** If your library was analyzed before genre exclusions were introduced, existing KV entries may not have genre data. Enable **Run Genre Migration** in the plugin settings (Genre Exclusions section) to backfill genre data from Navidrome into all existing entries — no re-analysis required. Disable it again after it completes (check logs for `Genre migration complete`).
+---
+
+## Re-analyzing Your Library
+
+The plugin analyzes each track once and caches the result. To re-analyze your entire library — for example after adding a Last.fm API key, or after updating the analyzer Docker image with improved models — use the **Force Re-analyze Entire Library** toggle:
+
+1. In plugin settings, enable **Force Re-analyze Entire Library**
+2. Set **Analysis Schedule** to fire in the next minute (e.g. `36 14 * * *` if it's currently 14:35 UTC)
+3. Save — you'll see `Queued XXXX tracks` in the Navidrome logs shortly
+4. **Important:** once queuing starts, restore **Analysis Schedule** to `0 2 * * *` and disable **Force Re-analyze Entire Library** — leaving it enabled will re-analyze everything on every subsequent run
+
+Monitor progress:
+```bash
+docker logs navidrome -f | grep "mood-playlists"
+```
+
+Watch for `Reached end of library` to confirm completion. With a large library (10,000+ tracks) at 2 workers, expect several hours. After analysis completes, trigger a playlist refresh by temporarily setting **Playlist Refresh Schedule** to the next minute, then restore it.
+
+---
+
+## How It Works
+
+```
+┌─────────────────────────────────────┐     ┌──────────────────────────────────┐
+│      Navidrome + mood-playlists      │     │       mood-analyzer service        │
+│                                     │     │      (essentia-tensorflow)         │
+│  Scheduler: daily scan              │────>│                                    │
+│  → queue unanalyzed tracks          │ HTTP│  1. Extract audio features         │
+│                                     │     │     BPM, energy, mood scores       │
+│  Task executor: per track           │     │                                    │
+│  → POST stream URL to analyzer      │     │  2. Genre + BPM context boosts     │
+│  → store scores in KVStore          │     │     25+ keyword corrections        │
+│                                     │     │                                    │
+│  Scheduler: weekly refresh          │     │  3. Last.fm tag boosts (optional)  │
+│  → query KVStore scores             │     │     crowd-sourced cultural context │
+│  → build 13 mood playlists          │     │                                    │
+│  → write via Subsonic API           │     │  → return final mood scores        │
+│                                     │     └──────────────────────────────────┘
+│  Instant Mix hook                   │
+│  → Euclidean distance on mood       │
+│    vectors → closest matches        │
+└─────────────────────────────────────┘
+```
+
+The analyzer service receives a stream URL from the plugin, uses `ffmpeg` to download just the first 30 seconds of audio to a temp WAV, runs essentia-tensorflow inference, applies the two correction layers, and returns the final scores. The plugin stores them in its KVStore keyed by track ID and uses them for all subsequent playlist and Instant Mix operations.
+
+---
 
 ## Configuration
 
-All settings are configurable from Navidrome's plugin settings UI:
+All settings are in Navidrome → **Settings > Plugins > Mood Playlists**. Full reference:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Analyzer Service URL | `http://mood-analyzer:8000` | URL of the mood analyzer HTTP service |
-| Auto-Analyze | `true` | Automatically analyze new tracks on schedule |
+| Navidrome URL | `http://navidrome:4533` | Internal URL of your Navidrome server |
+| Analyzer Service URL | `http://mood-analyzer:8000` | URL of the mood analyzer service |
+| Music Mount Path | `/music` | Path where music is mounted in the analyzer container |
+| Auto-Analyze New Tracks | `true` | Scan for and analyze new tracks on schedule |
 | Analysis Schedule | `0 2 * * *` | Cron expression (default: 2 AM daily) |
 | Re-analyze Uncertain | `true` | Re-queue tracks with low-confidence scores |
 | Re-analyze Percent | `0` | % of library to randomly re-analyze each cycle (0–20) |
-| Re-analysis Schedule | `0 4 1 * *` | Cron expression for dedicated re-analysis run |
-| Playlist Refresh Schedule | `0 3 * * 0` | Cron expression (default: 3 AM Sundays) |
-| Tracks per Playlist | `30` | Number of tracks in each mood playlist (applies to all 13) |
+| Re-analysis Schedule | `0 4 1 * *` | Cron for the dedicated re-analysis pass |
+| Playlist Refresh Schedule | `0 3 * * 0` | Cron expression (default: Sunday 3 AM) |
+| Tracks per Playlist | `30` | Number of tracks in each mood playlist |
 | Similar Songs Count | `20` | Tracks returned for Instant Mix |
 | Max Tracks per Artist | `3` | Per-artist cap per playlist (0 = no limit) |
-| Max Analysis Workers | `2` | Number of concurrent analysis tasks (1-8) |
-| Playlist Variation Pool | `3` | Pool multiplier for weekly variation (1–10) |
-| Happy Threshold | `0.55` | Minimum score (0-1) for happy classification |
+| Max Analysis Workers | `2` | Concurrent analysis tasks (reduce to 1 on low-end hardware) |
+| Playlist Variation Pool | `3` | Pool multiplier for weekly variety (1–10) |
+| Happy Threshold | `0.55` | Minimum score (0–1) for happy classification |
 | Chill Threshold | `0.40` | Minimum score for chill/relaxed |
 | Energetic Threshold | `0.60` | Minimum score for energetic/danceable |
 | Party Threshold | `0.55` | Minimum score for party |
 | Melancholy Threshold | `0.45` | Minimum score for sad/melancholy |
 | Aggressive Threshold | `0.55` | Minimum score for aggressive |
-| Show Dates in Playlist Names | `true` | Append generation/creation dates directly to playlist titles |
-| Add Creation Dates to Playlists | `false` | Automatically sync creation dates to all playlists |
-| Creation Date Sync Schedule | `0 5 * * *` | Cron expression for the creation date sync task |
-| Chill Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Chill Mix |
-| Sleep Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Sleep Mix |
-| Study Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Study Mix |
-| Dining Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Dining Mix |
-| Background Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Background Mix |
-| Road Trip Excluded Genres | _(see defaults)_ | Comma-separated genre keywords blocked from Road Trip Mix |
+| Show Dates in Playlist Names | `true` | Append generation dates to playlist titles |
+| Add Creation Dates to Playlists | `false` | Sync creation dates to all non-plugin playlists |
+| Creation Date Sync Schedule | `0 5 * * *` | Cron for the creation date sync task |
 | Run Genre Migration | `false` | One-time backfill of genre data into existing analyzed tracks |
-| Genre Migration Schedule | `0 1 * * *` | Cron expression for the genre migration pass |
-| Last.fm API Key | _(empty)_ | Optional API key for crowd-sourced tag boosts (free at last.fm/api) |
+| Genre Migration Schedule | `0 1 * * *` | Cron for the genre migration pass |
+| Last.fm API Key | _(empty)_ | Free API key for crowd-sourced tag boosts |
+| Genre Boost Weight | `1.0` | Multiplier for genre/BPM correction layer (0.0–2.0) |
+| Last.fm Boost Weight | `1.0` | Multiplier for Last.fm tag correction layer (0.0–2.0) |
+| Force Re-analyze Entire Library | `false` | Re-analyze every track on next run — disable after use |
 
-Composite mood conditions (requires/excludes thresholds) are fixed in code and not configurable via the UI.
-
-## Re-analyzing Your Library
-
-The plugin only analyzes each track once by default. If you want to re-analyze your entire library — for example after adding a Last.fm API key, or after updating the analyzer Docker image — use the **Force Re-analyze Entire Library** toggle:
-
-1. In plugin settings, enable **Force Re-analyze Entire Library**
-2. Set **Analysis Schedule** to fire in the next minute (e.g. if it's 14:35 UTC, set to `36 14 * * *`)
-3. Save and wait for the run to start — you'll see `Queued XXXX tracks` in the Navidrome logs
-4. **Important:** once queuing starts, restore **Analysis Schedule** back to `0 2 * * *` and **disable Force Re-analyze Entire Library** — leaving it enabled will re-analyze everything on every subsequent run
-
-Monitor progress in the Navidrome logs:
-```bash
-docker logs navidrome -f | grep "mood-playlists"
-```
-
-Watch for `Reached end of library` to confirm completion. With a large library and 2 workers, expect several hours for a full re-analysis pass.
-
-After analysis completes, trigger a playlist refresh by temporarily setting **Playlist Refresh Schedule** to the next minute, then restore it to `0 3 * * 0`.
-
-## How It Works
-
-```
-┌─────────────────────────────┐     ┌──────────────────────────┐
-│     Navidrome (+ plugin)    │     │   mood-analyzer service   │
-│                             │     │   (essentia-tensorflow)   │
-│  mood-playlists.ndp         │────>│                           │
-│  - scheduler: analyze new   │HTTP │  POST /api/analysis/file  │
-│    tracks daily             │     │  -> mood scores + BPM     │
-│  - kvstore: cache scores    │     │                           │
-│  - subsonicapi: create      │     └──────────────────────────┘
-│    playlists                │
-│  - instant mix: mood-       │
-│    similar tracks           │
-└─────────────────────────────┘
-```
-
-1. **Analysis** — On schedule, the plugin iterates all tracks via Subsonic API, sends unanalyzed ones to the analyzer service, and stores mood scores in its KVStore. The analyzer extracts raw audio features via essentia-tensorflow, then applies genre/BPM context boosts so that genre-specific characteristics (like DnB's danceability) are properly reflected.
-
-2. **Playlists** — On the refresh schedule, it queries stored mood data and creates two types of playlists:
-   - **Simple moods** — selects tracks above a single threshold (sorted by that score)
-   - **Composite moods** — selects tracks that pass both a minimum positive requirement and maximum caps on negative attributes, sorted by the primary score field
-   - **Genre exclusions** — applied across all playlists after mood filtering; tracks whose genre tag matches a blocklist keyword are removed regardless of score
-
-3. **Instant Mix** — When triggered on a track, calculates Euclidean distance between the source track's mood vector and all analyzed tracks, returning the closest matches.
-
-4. **Metadata Sync** — Optionally adds creation dates to all non-plugin playlists, and tracks generation dates for mood playlists, exposing this metadata via the Subsonic API and optionally appending it to playlist titles.
+---
 
 ## Building from Source
 
-### 1. Analyzer Service (Multi-Arch)
+### Plugin (WASM)
 
-The analyzer service Docker image is architecture-aware. When building from source, Docker will automatically detect your platform:
+```powershell
+# Windows (PowerShell)
+tinygo build -o mood-playlists.wasm -target wasip1 -scheduler none -no-debug .
+Remove-Item mood-playlists.ndp -ErrorAction SilentlyContinue
+Compress-Archive -Path mood-playlists.wasm, manifest.json -DestinationPath mood-playlists.zip
+Rename-Item mood-playlists.zip mood-playlists.ndp
+```
+
+```bash
+# Linux / macOS
+tinygo build -o mood-playlists.wasm -target wasip1 -scheduler none -no-debug .
+zip mood-playlists.ndp mood-playlists.wasm manifest.json
+```
+
+### Analyzer Service
 
 ```bash
 cd analyzer-service
 docker build -t mood-analyzer .
+# ARM64: docker build --build-arg TARGETARCH=arm64 -t mood-analyzer .
 ```
 
-- **x64 (AMD64):** Build is fast (< 1 min) as it uses pre-compiled wheels.
-- **ARM64 (Raspberry Pi):** Build takes **15–20 minutes** on a Pi 5, as it installs build tools and compiles Essentia with TensorFlow support from source.
+---
 
-### 2. Plugin (WASM)
+## Documentation
 
-#### With TinyGo (recommended — smaller binary)
+For detailed troubleshooting, monitoring, per-field configuration reference, and the full Subsonic API integration guide, see **[HELP.md](HELP.md)**.
 
-```bash
-tinygo build -opt=2 -scheduler=none -no-debug -o plugin.wasm -target wasip1 -buildmode=c-shared .
-```
-
-**Windows (PowerShell):**
-```powershell
-Remove-Item mood-playlists.ndp -ErrorAction SilentlyContinue
-Compress-Archive -Path plugin.wasm, manifest.json -DestinationPath mood-playlists.zip
-Rename-Item mood-playlists.zip mood-playlists.ndp
-```
-
-**Linux / macOS:**
-```bash
-zip mood-playlists.ndp plugin.wasm manifest.json
-```
-
-#### With Go 1.26+
-
-```bash
-GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o plugin.wasm .
-```
-
-Then package as above.
+---
 
 ## Contributing
 
-Contributions welcome! Some ideas:
+Contributions welcome. Ideas:
 
+- [ ] Configurable thresholds for composite moods via the settings UI
 - [ ] Per-user mood playlists
 - [ ] "Mood of the day" rotating playlist
-- [ ] Configurable thresholds for composite moods via the settings UI
 
 ## License
 

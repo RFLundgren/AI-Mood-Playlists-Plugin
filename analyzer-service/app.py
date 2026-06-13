@@ -202,9 +202,9 @@ def _get_lastfm_tags(artist: str, title: str, api_key: str) -> list:
         return []
 
 
-def _apply_lastfm_boosts(scores: dict, tags: list) -> dict:
+def _apply_lastfm_boosts(scores: dict, tags: list, weight: float = 1.0) -> dict:
     """Apply Last.fm tag-based score adjustments. Each keyword matched at most once."""
-    if not tags:
+    if not tags or weight == 0.0:
         return scores
     adjusted = dict(scores)
     field_delta = {}
@@ -212,7 +212,7 @@ def _apply_lastfm_boosts(scores: dict, tags: list) -> dict:
     for keyword, boosts in LASTFM_TAG_BOOSTS.items():
         if any(keyword in tag for tag in tags):
             for field, delta in boosts.items():
-                field_delta[field] = field_delta.get(field, 0.0) + delta
+                field_delta[field] = field_delta.get(field, 0.0) + delta * weight
 
     max_delta = 0.20
     for field, delta in field_delta.items():
@@ -223,7 +223,7 @@ def _apply_lastfm_boosts(scores: dict, tags: list) -> dict:
     return adjusted
 
 
-def _apply_context_boosts(scores, genre, artist, bpm):
+def _apply_context_boosts(scores, genre, artist, bpm, weight=1.0):
     """Adjust raw essentia scores based on genre/artist/BPM context."""
     adjusted = dict(scores)
     genre_lower = (genre or "").lower()
@@ -232,7 +232,7 @@ def _apply_context_boosts(scores, genre, artist, bpm):
         if keyword in genre_lower:
             for score_key, boost in boosts.items():
                 if score_key in adjusted:
-                    adjusted[score_key] = adjusted[score_key] + boost
+                    adjusted[score_key] = adjusted[score_key] + boost * weight
 
     if bpm and bpm > 0:
         effective_bpm = bpm
@@ -256,12 +256,16 @@ def _apply_context_boosts(scores, genre, artist, bpm):
 class AnalyzeRequest(BaseModel):
     file_path: str
     lastfm_api_key: str = ""
+    genre_weight: float = 1.0
+    lastfm_weight: float = 1.0
 
 class AnalyzeUrlRequest(BaseModel):
     url: str
     lastfm_api_key: str = ""
     artist: str = ""
     title: str = ""
+    genre_weight: float = 1.0
+    lastfm_weight: float = 1.0
 
 
 @app.get("/health")
@@ -276,7 +280,7 @@ def health():
         return {"status": "error", "message": f"Unexpected error: {e}"}
 
 
-def _analyze_path(file_path: str, api_key: str = "") -> dict:
+def _analyze_path(file_path: str, api_key: str = "", genre_weight: float = 1.0, lastfm_weight: float = 1.0) -> dict:
     es = _load_essentia()
     results = {}
 
@@ -331,7 +335,7 @@ def _analyze_path(file_path: str, api_key: str = "") -> dict:
             "danceability", "mood_happy", "mood_sad",
             "mood_relaxed", "mood_aggressive", "mood_party"
         ]})
-        results = _apply_context_boosts(results, genre, artist, results.get("bpm", 0))
+        results = _apply_context_boosts(results, genre, artist, results.get("bpm", 0), weight=genre_weight)
         return {"file_path": file_path, "title": title, "artist": artist,
                 "album": album, "genre": genre, **results}
 
@@ -369,13 +373,13 @@ def _analyze_path(file_path: str, api_key: str = "") -> dict:
         results["danceability"] = 0.0
 
     # Apply genre/BPM context boosts
-    results = _apply_context_boosts(results, genre, artist, results.get("bpm", 0))
+    results = _apply_context_boosts(results, genre, artist, results.get("bpm", 0), weight=genre_weight)
 
     # Apply Last.fm crowd-sourced tag boosts
     lastfm_tags = _get_lastfm_tags(artist, title, api_key)
     if lastfm_tags:
         logger.info(f"Last.fm tags for {artist!r} - {title!r}: {lastfm_tags}")
-        results = _apply_lastfm_boosts(results, lastfm_tags)
+        results = _apply_lastfm_boosts(results, lastfm_tags, weight=lastfm_weight)
 
     return {"file_path": file_path, "title": title, "artist": artist,
             "album": album, "genre": genre, **results}
@@ -385,7 +389,7 @@ def _analyze_path(file_path: str, api_key: str = "") -> dict:
 def analyze_file(req: AnalyzeRequest):
     if not os.path.exists(req.file_path):
         raise HTTPException(status_code=404, detail=f"File not found: {req.file_path}")
-    return _analyze_path(req.file_path, req.lastfm_api_key)
+    return _analyze_path(req.file_path, req.lastfm_api_key, req.genre_weight, req.lastfm_weight)
 
 
 @app.post("/api/analysis/url")
@@ -421,14 +425,14 @@ def analyze_url(req: AnalyzeUrlRequest):
             last_line = err.splitlines()[-1] if err else "ffmpeg failed"
             raise Exception(last_line)
 
-        result = _analyze_path(tmp_path)
+        result = _analyze_path(tmp_path, genre_weight=req.genre_weight)
         # Use plugin-supplied artist/title for Last.fm — temp WAV metadata is unreliable
         logger.info(f"URL analysis request — key={'set' if req.lastfm_api_key else 'MISSING'} artist={req.artist!r} title={req.title!r}")
         if req.lastfm_api_key and req.artist and req.title:
             lastfm_tags = _get_lastfm_tags(req.artist, req.title, req.lastfm_api_key)
             if lastfm_tags:
                 logger.info(f"Last.fm tags for {req.artist!r} - {req.title!r}: {lastfm_tags}")
-                result = _apply_lastfm_boosts(result, lastfm_tags)
+                result = _apply_lastfm_boosts(result, lastfm_tags, weight=req.lastfm_weight)
         return result
     except Exception as e:
         logger.error(f"URL analysis error ({type(e).__name__}): {e}")

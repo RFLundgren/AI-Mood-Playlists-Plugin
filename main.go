@@ -778,12 +778,14 @@ func onTaskExecute() int32 {
 
 	analyzerURL := configString("analyzer_url", "http://mood-analyzer:8000")
 	lastfmKey := configString("lastfm_api_key", "")
+	genreBoostWeight := configFloat("genre_boost_weight", 1.0)
+	lastfmBoostWeight := configFloat("lastfm_boost_weight", 1.0)
 	ndURL := configString("navidrome_url", "http://navidrome:4533")
 	user := configString("navidrome_user", "")
 	pass := configString("navidrome_password", "")
 	streamURL := subsonicStreamURL(ndURL, user, pass, task.ID)
 
-	scores, err := callAnalyzerURL(analyzerURL, streamURL, lastfmKey, task.Artist, task.Title)
+	scores, err := callAnalyzerURL(analyzerURL, streamURL, lastfmKey, task.Artist, task.Title, genreBoostWeight, lastfmBoostWeight)
 	if err != nil {
 		pdk.Log(pdk.LogWarn, fmt.Sprintf("Analysis failed for %s: %s", task.Title, err.Error()))
 		return 1
@@ -807,8 +809,8 @@ func onTaskExecute() int32 {
 	return 0
 }
 
-func callAnalyzerURL(baseURL, streamURL, lastfmKey, artist, title string) (*MoodScores, error) {
-	reqBody, _ := json.Marshal(map[string]string{"url": streamURL, "lastfm_api_key": lastfmKey, "artist": artist, "title": title})
+func callAnalyzerURL(baseURL, streamURL, lastfmKey, artist, title string, genreWeight, lastfmWeight float64) (*MoodScores, error) {
+	reqBody, _ := json.Marshal(map[string]interface{}{"url": streamURL, "lastfm_api_key": lastfmKey, "artist": artist, "title": title, "genre_weight": genreWeight, "lastfm_weight": lastfmWeight})
 
 	resp, err := host.HTTPSend(host.HTTPRequest{
 		URL:       baseURL + "/api/analysis/url",

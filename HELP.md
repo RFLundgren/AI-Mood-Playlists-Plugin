@@ -601,6 +601,8 @@ Navidrome's Web UI does not natively display playlist descriptions or comments. 
 | `run_genre_migration` | `false` | — | — | Enable one-time genre backfill for existing analyzed tracks. Disable after completion. |
 | `genre_migration_schedule` | `0 1 * * *` | — | — | Cron expression for the genre migration pass |
 | `lastfm_api_key` | _(empty)_ | — | — | Optional Last.fm API key. When set, the analyzer fetches crowd-sourced listener tags per track and applies mood adjustments (±0.20 cap per field). Free key at last.fm/api |
+| `genre_boost_weight` | `1.0` | — | 0.0–2.0 | Multiplier for genre/BPM score corrections. 0.0 = disabled, 1.0 = normal, 2.0 = double influence. |
+| `lastfm_boost_weight` | `1.0` | — | 0.0–2.0 | Multiplier for Last.fm tag score corrections. 0.0 = disabled, 1.0 = normal, 2.0 = double influence. |
 
 > **Cron note:** Navidrome validates the minute field (first position) against a maximum of 23. Keep minute values between 0 and 23 to avoid a schedule registration error.
 

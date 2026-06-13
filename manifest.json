@@ -226,6 +226,22 @@
           "description": "Optional. Improves mood accuracy using crowd-sourced listener tags (e.g. 'chill', 'metal', 'melancholy'). Get a free key at https://www.last.fm/api/account/create",
           "default": ""
         },
+        "genre_boost_weight": {
+          "type": "number",
+          "title": "Genre Boost Weight",
+          "description": "Multiplier for genre-based score adjustments (0.0 = disabled, 1.0 = normal, 2.0 = double influence)",
+          "default": 1.0,
+          "minimum": 0.0,
+          "maximum": 2.0
+        },
+        "lastfm_boost_weight": {
+          "type": "number",
+          "title": "Last.fm Boost Weight",
+          "description": "Multiplier for Last.fm tag-based score adjustments (0.0 = disabled, 1.0 = normal, 2.0 = double influence)",
+          "default": 1.0,
+          "minimum": 0.0,
+          "maximum": 2.0
+        },
         "force_reanalyze_all": {
           "type": "boolean",
           "title": "Force Re-analyze Entire Library",
@@ -339,6 +355,14 @@
                   "options": {
                     "format": "password"
                   }
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/genre_boost_weight"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/lastfm_boost_weight"
                 }
               ]
             }
