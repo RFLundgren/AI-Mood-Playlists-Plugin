@@ -120,7 +120,7 @@ The plugin will start analyzing your library on its next scheduled run, or you c
 
 ## Requirements
 
-- **Navidrome** 0.61.0+ (plugin support, currently requires the `develop` branch)
+- **Navidrome** 0.62.0+
 - **Docker** for the analyzer service
 - Navidrome config:
   ```yaml
