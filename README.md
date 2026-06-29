@@ -283,7 +283,7 @@ All settings are in Navidrome → **Settings > Plugins > Mood Playlists**. Full 
 
 ```powershell
 # Windows (PowerShell)
-tinygo build -o plugin.wasm -target wasip1 -scheduler none -no-debug .
+tinygo build -opt=2 -scheduler=none -no-debug -o plugin.wasm -target wasip1 -buildmode=c-shared .
 Remove-Item mood-playlists.ndp -ErrorAction SilentlyContinue
 Compress-Archive -Path plugin.wasm, manifest.json -DestinationPath mood-playlists.zip
 Rename-Item mood-playlists.zip mood-playlists.ndp
@@ -291,7 +291,7 @@ Rename-Item mood-playlists.zip mood-playlists.ndp
 
 ```bash
 # Linux / macOS
-tinygo build -o plugin.wasm -target wasip1 -scheduler none -no-debug .
+tinygo build -opt=2 -scheduler=none -no-debug -o plugin.wasm -target wasip1 -buildmode=c-shared .
 zip mood-playlists.ndp plugin.wasm manifest.json
 ```
 
