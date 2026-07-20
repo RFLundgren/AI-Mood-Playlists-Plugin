@@ -2,6 +2,8 @@
 
 This guide walks you through every step needed to get the Mood Playlists plugin working in Navidrome — from first install to fully populated playlists. Read it top to bottom the first time. The troubleshooting section at the end covers the most common problems and how to fix them.
 
+> **About this fork.** This is a fork of the original Mood Playlists plugin, being adapted to build its mood/genre playlists from tags written by the separate [AI Auto-Tagging](https://github.com/RFLundgren/AI-Auto-Tagging-Plugin) plugin instead of the audio-analysis pipeline described below. The rework is in progress — most of this guide still describes the original audio-analysis architecture until that's complete. See [Section 17](#17-ai-tagging--cost-responsibility) for what's different about the AI-tag-based approach, including a required note on API costs.
+
 ---
 
 ## Table of Contents
@@ -22,6 +24,7 @@ This guide walks you through every step needed to get the Mood Playlists plugin 
 14. [Monitoring Analysis Progress](#14-monitoring-analysis-progress)
 15. [Troubleshooting](#15-troubleshooting)
 16. [Building from Source](#16-building-from-source)
+17. [AI Tagging & Cost Responsibility](#17-ai-tagging--cost-responsibility)
 
 ---
 
@@ -795,3 +798,24 @@ docker restart mood-analyzer
 ```
 
 The first build downloads ~500 MB of TensorFlow models. Subsequent builds are cached and fast.
+
+---
+
+## 17. AI Tagging & Cost Responsibility
+
+This section only applies once this fork is switched over to reading tags from the **AI Auto-Tagging** plugin instead of running its own audio analysis (see the note at the top of this guide). It's documented now so the cost model is clear before that rework lands.
+
+### Tracks are classified once, not repeatedly
+
+AI Auto-Tagging checks each track for existing tags before ever sending it to an AI provider. Once a track has at least one tag, every future scan skips it — it is never re-sent for classification. The only ongoing cost per scan is a cheap, local, free Navidrome API check (not an AI call) to confirm a track is already tagged; the actual AI provider call happens exactly once per track, ever, unless you manually clear that track's tags.
+
+Practically: your AI provider bill is driven by the size of your library the first time it's fully scanned, not by how often either plugin's schedules run afterward. A nightly or weekly schedule costs the same in AI tokens as an hourly one, once your library is fully tagged — the schedule only controls how quickly *new* tracks get classified.
+
+### You are responsible for AI provider costs
+
+AI Auto-Tagging calls a third-party AI provider (Anthropic, OpenAI, or Gemini) directly using **your own API key**, configured in that plugin's settings. **You are solely responsible for any usage charges your provider bills to that key.** Neither this plugin nor AI Auto-Tagging imposes a spending cap — that has to be managed on the provider's side (e.g. Google AI Studio / Google Cloud billing, Anthropic Console, OpenAI's usage dashboard). Before enabling this on a large library:
+
+- Check your provider's current pricing for whatever model you've configured — this changes often enough that any number quoted here would go stale.
+- Consider setting a budget alert or hard spending cap in your provider's billing dashboard, if it offers one.
+- Test on a small `maxTracksPerRun` value first to confirm cost and tag quality before scanning your whole library.
+- Free-tier API keys typically have very low requests-per-minute limits (e.g. 5/min has been observed on Gemini's free tier) — if classification seems to be crawling or failing with `429`/quota errors, that's most likely the cause, not a bug.
