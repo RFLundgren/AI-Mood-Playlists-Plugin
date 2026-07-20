@@ -1,4 +1,4 @@
-module github.com/craiglush/navidrome-mood-plugin
+module github.com/RFLundgren/ai-mood-playlists
 
 go 1.25.0
 

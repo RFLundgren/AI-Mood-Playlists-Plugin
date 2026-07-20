@@ -1,11 +1,11 @@
 {
   "$schema": "https://raw.githubusercontent.com/navidrome/navidrome/refs/heads/master/plugins/manifest-schema.json",
-  "name": "Mood Playlists",
-  "id": "mood-playlists",
-  "author": "Craig Lusher",
-  "version": "0.10.1",
-  "description": "Audio analysis-powered mood playlists and Instant Mix. Creates 13 mood playlists (Happy, Chill, Energetic, Melancholy, Party, Aggressive, Study, Workout, Sleep, Road Trip, Cooking, Dining, Background) using an external analyzer service.",
-  "website": "https://github.com/RFLundgren/navidrome-mood-plugin/blob/master/HELP.md",
+  "name": "AI Mood Playlists",
+  "id": "ai-mood-playlists",
+  "author": "RFLundgren",
+  "version": "0.1.0",
+  "description": "AI-tag-powered mood/genre playlists, forked from Mood Playlists to consume AI Auto-Tagging's tags instead of audio analysis.",
+  "website": "https://github.com/RFLundgren/ai-mood-playlists",
   "config": {
     "schema": {
       "type": "object",
