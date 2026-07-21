@@ -133,6 +133,7 @@ func TestStartRebuild_FiltersToConfiguredCategoriesAndEnqueues(t *testing.T) {
 	host.SubsonicAPIMock.On("Call", "getAllUserTags.view?").
 		Return(`{"subsonic-response":{"userTags":{"tag":["genre:rock","mood:chill","language:english"]}}}`, nil).Once()
 	host.ConfigMock.On("Get", "playlist_tag_categories").Return("genre,mood", true).Once()
+	host.ConfigMock.On("Get", "playlist_allowlist").Return("", false).Once()
 
 	host.TaskMock.On("Enqueue", rebuildQueue, mock.MatchedBy(func(payload []byte) bool {
 		var task map[string]string
@@ -157,6 +158,30 @@ func TestStartRebuild_FiltersToConfiguredCategoriesAndEnqueues(t *testing.T) {
 		var task map[string]string
 		json.Unmarshal(payload, &task)
 		return task["tag"] == "language:english"
+	}))
+}
+
+func TestStartRebuild_AllowlistNarrowsToSpecificValues(t *testing.T) {
+	resetMocks()
+	host.SubsonicAPIMock.On("Call", "getAllUserTags.view?").
+		Return(`{"subsonic-response":{"userTags":{"tag":["genre:rock","genre:electronic","mood:chill"]}}}`, nil).Once()
+	host.ConfigMock.On("Get", "playlist_tag_categories").Return("genre,mood", true).Once()
+	host.ConfigMock.On("Get", "playlist_allowlist").Return("rock", true).Once()
+
+	host.TaskMock.On("Enqueue", rebuildQueue, mock.MatchedBy(func(payload []byte) bool {
+		var task map[string]string
+		json.Unmarshal(payload, &task)
+		return task["tag"] == "genre:rock"
+	})).Return("task-1", nil).Once()
+
+	err := startRebuild()
+
+	require.NoError(t, err)
+	host.TaskMock.AssertExpectations(t)
+	host.TaskMock.AssertNotCalled(t, "Enqueue", rebuildQueue, mock.MatchedBy(func(payload []byte) bool {
+		var task map[string]string
+		json.Unmarshal(payload, &task)
+		return task["tag"] == "genre:electronic" || task["tag"] == "mood:chill"
 	}))
 }
 
@@ -301,6 +326,7 @@ func TestOnCallback_DispatchesRebuild(t *testing.T) {
 	host.SubsonicAPIMock.On("Call", "getAllUserTags.view?").
 		Return(`{"subsonic-response":{"userTags":{"tag":[]}}}`, nil).Once()
 	host.ConfigMock.On("Get", "playlist_tag_categories").Return("genre,mood", true).Once()
+	host.ConfigMock.On("Get", "playlist_allowlist").Return("", false).Once()
 
 	err := (&moodPlugin{}).OnCallback(scheduler.SchedulerCallbackRequest{Payload: rebuildPayload})
 

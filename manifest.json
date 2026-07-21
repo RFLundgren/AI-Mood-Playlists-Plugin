@@ -40,6 +40,12 @@
           "description": "Comma-separated tag categories from AI Auto-Tagging to auto-create playlists for - one playlist per distinct value found in each category.",
           "default": "genre,mood"
         },
+        "playlist_allowlist": {
+          "type": "string",
+          "title": "Playlist Allowlist",
+          "description": "Optional. Comma-separated tag values to build playlists for (e.g. 'rock, chill, energetic') - no category prefix needed. Leave empty to auto-create a playlist for every value found in the categories above, which can be a lot once your whole library is tagged.",
+          "default": ""
+        },
         "playlist_size": {
           "type": "integer",
           "title": "Tracks per Playlist",
@@ -142,6 +148,15 @@
                 {
                   "type": "Control",
                   "scope": "#/properties/playlist_tag_categories"
+                }
+              ]
+            },
+            {
+              "type": "HorizontalLayout",
+              "elements": [
+                {
+                  "type": "Control",
+                  "scope": "#/properties/playlist_allowlist"
                 }
               ]
             },

@@ -172,10 +172,19 @@ func startRebuild() error {
 	}
 
 	categories := parseList(configString("playlist_tag_categories", "genre,mood"))
+	// allowlist narrows which discovered tag values actually get a playlist.
+	// Empty means "every value in the configured categories" (the default,
+	// so the plugin still does something useful out of the box) - set it to
+	// pick exactly which playlists you want instead of one per tag value,
+	// which can be a lot once AI Auto-Tagging has covered a whole library.
+	allowlist := parseList(configString("playlist_allowlist", ""))
 	queued := 0
 	for _, tag := range tags {
-		category, _, ok := strings.Cut(tag, ":")
+		category, value, ok := strings.Cut(tag, ":")
 		if !ok || !slices.Contains(categories, category) {
+			continue
+		}
+		if len(allowlist) > 0 && !slices.Contains(allowlist, value) {
 			continue
 		}
 		taskData, _ := json.Marshal(map[string]string{"tag": tag})
