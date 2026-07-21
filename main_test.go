@@ -32,6 +32,12 @@ func resetMocks() {
 	host.ConfigMock.On("Get", "navidrome_url").Return("", false).Maybe()
 	host.ConfigMock.On("Get", "navidrome_user").Return("", false).Maybe()
 	host.ConfigMock.On("Get", "navidrome_password").Return("", false).Maybe()
+
+	// startRebuild always reads both per-category allowlists up front -
+	// default them to "unset" (= no narrowing) so tests only need to
+	// override the one(s) they actually care about.
+	host.ConfigMock.On("Get", "genre_allowlist").Return("", false).Maybe()
+	host.ConfigMock.On("Get", "mood_allowlist").Return("", false).Maybe()
 }
 
 // ── Pure logic ───────────────────────────────────────────────────
@@ -52,6 +58,18 @@ func TestParseList(t *testing.T) {
 	require.Equal(t, []string{"genre", "mood"}, parseList("genre, mood"))
 	require.Equal(t, []string{"genre"}, parseList("  genre  "))
 	require.Empty(t, parseList(""))
+}
+
+func TestConfigStringArray(t *testing.T) {
+	resetMocks()
+	host.ConfigMock.ExpectedCalls, host.ConfigMock.Calls = nil, nil // avoid the blanket defaults below
+	host.ConfigMock.On("Get", "genre_allowlist").Return(`["rock","pop"]`, true).Once()
+	host.ConfigMock.On("Get", "unset_field").Return("", false).Once()
+	host.ConfigMock.On("Get", "malformed_field").Return("not json", true).Once()
+
+	require.Equal(t, []string{"rock", "pop"}, configStringArray("genre_allowlist"))
+	require.Nil(t, configStringArray("unset_field"))
+	require.Nil(t, configStringArray("malformed_field"))
 }
 
 func TestSelectTracks_AppliesPerArtistCap(t *testing.T) {
@@ -133,7 +151,6 @@ func TestStartRebuild_FiltersToConfiguredCategoriesAndEnqueues(t *testing.T) {
 	host.SubsonicAPIMock.On("Call", "getAllUserTags.view?").
 		Return(`{"subsonic-response":{"userTags":{"tag":["genre:rock","mood:chill","language:english"]}}}`, nil).Once()
 	host.ConfigMock.On("Get", "playlist_tag_categories").Return("genre,mood", true).Once()
-	host.ConfigMock.On("Get", "playlist_allowlist").Return("", false).Once()
 
 	host.TaskMock.On("Enqueue", rebuildQueue, mock.MatchedBy(func(payload []byte) bool {
 		var task map[string]string
@@ -161,18 +178,30 @@ func TestStartRebuild_FiltersToConfiguredCategoriesAndEnqueues(t *testing.T) {
 	}))
 }
 
-func TestStartRebuild_AllowlistNarrowsToSpecificValues(t *testing.T) {
+func TestStartRebuild_GenreAllowlistOnlyNarrowsGenres(t *testing.T) {
 	resetMocks()
+	host.ConfigMock.ExpectedCalls, host.ConfigMock.Calls = nil, nil // drop the blanket "unset" defaults below
+	host.ConfigMock.On("Get", "navidrome_url").Return("", false).Maybe()
+	host.ConfigMock.On("Get", "navidrome_user").Return("", false).Maybe()
+	host.ConfigMock.On("Get", "navidrome_password").Return("", false).Maybe()
+	host.ConfigMock.On("Get", "mood_allowlist").Return("", false).Maybe()
+
 	host.SubsonicAPIMock.On("Call", "getAllUserTags.view?").
 		Return(`{"subsonic-response":{"userTags":{"tag":["genre:rock","genre:electronic","mood:chill"]}}}`, nil).Once()
 	host.ConfigMock.On("Get", "playlist_tag_categories").Return("genre,mood", true).Once()
-	host.ConfigMock.On("Get", "playlist_allowlist").Return("rock", true).Once()
+	host.ConfigMock.On("Get", "genre_allowlist").Return(`["rock"]`, true).Once()
 
 	host.TaskMock.On("Enqueue", rebuildQueue, mock.MatchedBy(func(payload []byte) bool {
 		var task map[string]string
 		json.Unmarshal(payload, &task)
 		return task["tag"] == "genre:rock"
 	})).Return("task-1", nil).Once()
+	// mood_allowlist is unset, so mood:chill is unaffected by the genre allowlist.
+	host.TaskMock.On("Enqueue", rebuildQueue, mock.MatchedBy(func(payload []byte) bool {
+		var task map[string]string
+		json.Unmarshal(payload, &task)
+		return task["tag"] == "mood:chill"
+	})).Return("task-2", nil).Once()
 
 	err := startRebuild()
 
@@ -181,7 +210,7 @@ func TestStartRebuild_AllowlistNarrowsToSpecificValues(t *testing.T) {
 	host.TaskMock.AssertNotCalled(t, "Enqueue", rebuildQueue, mock.MatchedBy(func(payload []byte) bool {
 		var task map[string]string
 		json.Unmarshal(payload, &task)
-		return task["tag"] == "genre:electronic" || task["tag"] == "mood:chill"
+		return task["tag"] == "genre:electronic"
 	}))
 }
 
@@ -326,7 +355,6 @@ func TestOnCallback_DispatchesRebuild(t *testing.T) {
 	host.SubsonicAPIMock.On("Call", "getAllUserTags.view?").
 		Return(`{"subsonic-response":{"userTags":{"tag":[]}}}`, nil).Once()
 	host.ConfigMock.On("Get", "playlist_tag_categories").Return("genre,mood", true).Once()
-	host.ConfigMock.On("Get", "playlist_allowlist").Return("", false).Once()
 
 	err := (&moodPlugin{}).OnCallback(scheduler.SchedulerCallbackRequest{Payload: rebuildPayload})
 

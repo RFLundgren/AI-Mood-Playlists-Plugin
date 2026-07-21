@@ -172,20 +172,28 @@ func startRebuild() error {
 	}
 
 	categories := parseList(configString("playlist_tag_categories", "genre,mood"))
-	// allowlist narrows which discovered tag values actually get a playlist.
-	// Empty means "every value in the configured categories" (the default,
-	// so the plugin still does something useful out of the box) - set it to
+	// Per-category allowlists narrow which discovered tag values actually get
+	// a playlist. Empty means "every value in that category" (the default,
+	// so the plugin still does something useful out of the box) - set one to
 	// pick exactly which playlists you want instead of one per tag value,
 	// which can be a lot once AI Auto-Tagging has covered a whole library.
-	allowlist := parseList(configString("playlist_allowlist", ""))
+	genreAllowlist := configStringArray("genre_allowlist")
+	moodAllowlist := configStringArray("mood_allowlist")
 	queued := 0
 	for _, tag := range tags {
 		category, value, ok := strings.Cut(tag, ":")
 		if !ok || !slices.Contains(categories, category) {
 			continue
 		}
-		if len(allowlist) > 0 && !slices.Contains(allowlist, value) {
-			continue
+		switch category {
+		case "genre":
+			if len(genreAllowlist) > 0 && !slices.Contains(genreAllowlist, value) {
+				continue
+			}
+		case "mood":
+			if len(moodAllowlist) > 0 && !slices.Contains(moodAllowlist, value) {
+				continue
+			}
 		}
 		taskData, _ := json.Marshal(map[string]string{"tag": tag})
 		if _, err := host.TaskEnqueue(rebuildQueue, taskData); err != nil {
@@ -528,6 +536,21 @@ func configBool(key string, defaultVal bool) bool {
 		return defaultVal
 	}
 	return val == "true" || val == "1" || val == "yes"
+}
+
+// configStringArray reads an array-typed config value. The plugin host
+// serializes array-typed config fields as JSON strings, so the raw value is
+// a JSON array (e.g. `["rock","pop"]`), not a plain string.
+func configStringArray(key string) []string {
+	raw, ok := host.ConfigGet(key)
+	if !ok || raw == "" {
+		return nil
+	}
+	var values []string
+	if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		return nil
+	}
+	return values
 }
 
 // ── Playlist metadata enrichment ─────────────────────────────────

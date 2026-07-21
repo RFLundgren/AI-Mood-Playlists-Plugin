@@ -40,11 +40,35 @@
           "description": "Comma-separated tag categories from AI Auto-Tagging to auto-create playlists for - one playlist per distinct value found in each category.",
           "default": "genre,mood"
         },
-        "playlist_allowlist": {
-          "type": "string",
-          "title": "Playlist Allowlist",
-          "description": "Optional. Comma-separated tag values to build playlists for (e.g. 'rock, chill, energetic') - no category prefix needed. Leave empty to auto-create a playlist for every value found in the categories above, which can be a lot once your whole library is tagged.",
-          "default": ""
+        "genre_allowlist": {
+          "type": "array",
+          "title": "Genres to Build Playlists For",
+          "description": "Leave empty to auto-create a playlist for every genre AI Auto-Tagging has used. Select specific genres to narrow it down.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "rock", "pop", "electronic", "hip hop", "jazz", "classical", "metal",
+              "folk", "country", "r&b", "soul", "blues", "reggae", "punk", "indie",
+              "ambient", "new age", "world", "funk", "disco", "house", "techno",
+              "alternative", "soundtrack", "experimental"
+            ]
+          },
+          "uniqueItems": true,
+          "default": []
+        },
+        "mood_allowlist": {
+          "type": "array",
+          "title": "Moods to Build Playlists For",
+          "description": "Leave empty to auto-create a playlist for every mood AI Auto-Tagging has used. Select specific moods to narrow it down.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "happy", "chill", "energetic", "melancholy", "party", "aggressive",
+              "romantic", "dreamy", "dark", "uplifting", "nostalgic", "peaceful"
+            ]
+          },
+          "uniqueItems": true,
+          "default": []
         },
         "playlist_size": {
           "type": "integer",
@@ -156,7 +180,11 @@
               "elements": [
                 {
                   "type": "Control",
-                  "scope": "#/properties/playlist_allowlist"
+                  "scope": "#/properties/genre_allowlist"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/mood_allowlist"
                 }
               ]
             },
