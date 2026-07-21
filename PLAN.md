@@ -25,8 +25,8 @@ nothing here can accidentally get pushed to the production repo.
 |---|---|
 | Repo forked, renamed, rebuilds cleanly | ✅ Done |
 | Docs: forward-looking note + cost/idempotency section in `HELP.md` | ✅ Done |
-| Decision: Instant Mix's fate | ❓ Undecided |
-| Decision: playlist mechanism (native smart-playlist criteria vs. keep manual snapshot rebuild) | ❓ Undecided |
+| Decision: Instant Mix's fate | ✅ Decided — reimagine around shared-tag overlap |
+| Decision: playlist mechanism | ✅ Decided — simplified, tag-based snapshot rebuild, running frequently |
 | Actual code rework | 📋 Not started — `main.go` is currently byte-for-byte the original audio-analysis implementation |
 
 ## Architecture reference: what the original does today
@@ -49,44 +49,56 @@ For whoever reads this cold later — the starting point, before any rework:
 - **Instant Mix** is a separate feature from the 13 mood playlists — nearest-neighbor search over each track's
   continuous 5-dimension mood vector (happy/sad/relaxed/aggressive/party), returned directly, no playlist involved.
 
-## Two decisions needed before real implementation starts
+## Decisions
 
-### Decision 1 — What happens to Instant Mix?
+### Decision 1 — What happens to Instant Mix? ✅ Decided: reimagine around shared-tag overlap
 
-Its current design depends on continuous numeric vectors for distance computation; discrete AI tags
-(`genre:rock`, `mood:chill`) don't map cleanly onto "how similar," only "same or not."
+Its original design depends on continuous numeric vectors for distance computation; discrete AI tags
+(`genre:rock`, `mood:chill`) don't map cleanly onto "how similar," only "same or not." Rather than keep the Python
+analyzer service alive just for this one feature, or drop it, nearest-neighbor becomes "tracks sharing the most
+genre/mood tags with the source track." Coarser than continuous similarity, but removes the audio-analysis
+dependency entirely, consistent with the rest of this rework.
 
-- **A. Keep it running on the old audio vectors in parallel** — preserves behavior exactly, but keeps the Python
-  analyzer service (the thing this whole rework exists to get away from) alive for one feature.
-- **B. Reimagine it around shared-tag overlap** — nearest neighbor = most matching tags. Loses fine-grained
-  continuous similarity, but removes the audio-analysis dependency entirely.
-- **C. Drop it from this fork.** Simplest, but a real feature loss for anyone using it today.
+### Decision 2 — Playlist mechanism ✅ Decided: simplified, tag-based snapshot rebuild, run frequently
 
-No recommendation locked in — this is a product call.
+Native smart-playlist criteria (`{"is": {"usertag": "mood:chill"}}`, `sort: "random"`, `limit: N`) looked
+attractive initially — self-maintaining, far less code, and Navidrome's `random` sort genuinely re-randomizes on
+every view (confirmed against `persistence/criteria_sql_test.go` in `navidrome-experimental` — it compiles to SQL
+`random() asc`, not a cached shuffle).
 
-### Decision 2 — Playlist mechanism: native smart-playlist criteria, or keep the manual snapshot-rebuild model?
+**The blocker: per-artist diversity.** The library this is built for has extreme artist skew (some artists with
+60+ albums, others with just one), so an unweighted random draw would let big artists dominate every mood
+playlist. That's not solvable with native criteria — Navidrome's rules engine has no per-group-limit concept, and
+more fundamentally, "cap tracks per artist" requires evaluating a whole candidate set at once to select a balanced
+subset, which is incompatible with a rule that re-randomizes independently on every single view. There's nothing
+stable to cap.
 
-- **Native criteria** (e.g. `{"is": {"usertag": "mood:chill"}}`, self-maintaining, no scheduled rebuild needed) —
-  much less code, but Navidrome's rules engine has no direct equivalent for the existing per-artist cap or
-  variation-pool shuffle. Those specific behaviors would need to be dropped or reimplemented some other way.
-- **Keep the manual snapshot-rebuild model**, adapted to read tags instead of audio vectors — preserves
-  per-artist-cap and variation-pool exactly as they work today, but keeps the weekly-refresh scheduling
-  machinery even though nothing about tag-based classification actually *requires* a refresh cadence (the tags
-  themselves only change when AI Auto-Tagging classifies a new track, not on any regular schedule).
+So: **keep a periodic rebuild, adapted for tags, but much simpler and much more frequent than the original.** The
+original plugin's weekly cadence existed because *audio analysis* was expensive — that cost is now paid once, ever,
+per track, by AI Auto-Tagging (see its own idempotent-classification design). Reading already-written tags via
+`getUserTags`/`search3` is cheap, so the rebuild itself can run far more often (hourly, or whatever cadence feels
+right) without meaningful cost, closing most of the "staleness" gap a scheduled job implies. The rebuild logic
+itself:
 
-Leaning toward native criteria for simplicity's sake, but not settled — worth deciding deliberately rather than
-defaulting into it, especially since the whole reason a "weekly refresh" job exists today is the snapshot design,
-not a technical requirement of the new data source.
+1. Gather all tracks matching a tag value (e.g. everything tagged `mood:chill`)
+2. Shuffle
+3. Walk the shuffled list, applying the configured per-artist cap as you go
+4. Stop once the configured playlist size is reached
+5. Upsert via `createPlaylist`/`updatePlaylist`, same mechanism as today
 
-## Remaining implementation work (once the two decisions above are made)
+This is genuinely less code than the original (no score thresholds, no confidence-based re-analysis, no
+genre-boost weighting to port) while still guaranteeing the artist diversity this library actually needs.
+
+## Remaining implementation work
 
 1. Retire the Python analyzer-service dependency and every HTTP call to it in `main.go`.
 2. Replace KV-stored mood-score reads/writes with `getUserTags`/`search3` calls against AI Auto-Tagging's tags.
-3. Rebuild playlist-construction logic per Decision 2.
+3. Implement the simplified rebuild logic from Decision 2 above (gather → shuffle → per-artist-cap walk → size
+   limit → upsert), with playlist size and per-artist cap as config values.
 4. Decide the actual playlist set — keep the same 13 named mixes (mapped from tag values instead of score
    thresholds), or move to something more dynamic (e.g. one playlist auto-created per distinct `genre:`/`mood:`
-   tag value discovered in the library).
-5. Resolve Instant Mix per Decision 1.
+   tag value discovered in the library). Still open — smaller in scope than the two decisions above.
+5. Implement Instant Mix's tag-overlap reimplementation per Decision 1 above.
 6. Trim `manifest.json`'s config schema — remove now-obsolete fields (mood thresholds, analyzer URL, Last.fm
    key/weights, genre-boost-weight; genre exclusions become unnecessary if per-mix criteria can just exclude a
    genre tag directly) and add whatever the tag-based approach actually needs instead.
