@@ -28,71 +28,25 @@
           "description": "Password for Navidrome API access (required for scheduled tasks)",
           "writeOnly": true
         },
-        "analyzer_url": {
+        "rebuild_schedule": {
           "type": "string",
-          "title": "Analyzer Service URL",
-          "description": "URL of the mood analyzer HTTP service (e.g., http://mood-analyzer:8000)",
-          "default": "http://mood-analyzer:8000"
+          "title": "Playlist Rebuild Schedule (cron)",
+          "description": "How often to rebuild playlists from current tags. Reading tags is cheap, so this can run often - hourly by default.",
+          "default": "0 * * * *"
         },
-        "music_path": {
+        "playlist_tag_categories": {
           "type": "string",
-          "title": "Music Mount Path",
-          "description": "Absolute path where music is mounted in the analyzer container (e.g., /music)",
-          "default": "/music"
+          "title": "Tag Categories to Build Playlists From",
+          "description": "Comma-separated tag categories from AI Auto-Tagging to auto-create playlists for - one playlist per distinct value found in each category.",
+          "default": "genre,mood"
         },
-        "auto_analyze": {
-          "type": "boolean",
-          "title": "Auto-Analyze New Tracks",
-          "description": "Automatically analyze new tracks on a schedule",
-          "default": true
-        },
-        "analyze_schedule": {
-          "type": "string",
-          "title": "Analysis Schedule (cron)",
-          "description": "Cron expression for when to scan for and analyze new tracks",
-          "default": "0 2 * * *"
-        },
-        "reanalyze_uncertain": {
-          "type": "boolean",
-          "title": "Re-analyze Uncertain Tracks",
-          "description": "Automatically re-analyze tracks where no mood score was confident (improves accuracy over time)",
-          "default": true
-        },
-        "reanalyze_percent": {
-          "type": "integer",
-          "title": "Random Re-analysis %",
-          "description": "Percentage of already-analyzed tracks to randomly re-analyze each scheduled run (0 = disabled)",
-          "default": 0,
-          "minimum": 0,
-          "maximum": 20
-        },
-        "reanalyze_schedule": {
-          "type": "string",
-          "title": "Re-analysis Cron",
-          "description": "When to run the dedicated re-analysis pass (uncertain tracks + random %).",
-          "default": "0 4 1 * *"
-        },
-        "playlist_refresh_schedule": {
-          "type": "string",
-          "title": "Playlist Refresh Schedule (cron)",
-          "description": "Cron expression for when to refresh mood playlists",
-          "default": "0 3 * * 0"
-        },
-        "playlist_track_count": {
+        "playlist_size": {
           "type": "integer",
           "title": "Tracks per Playlist",
-          "description": "Number of tracks in each mood playlist",
-          "default": 30,
+          "description": "Number of tracks in each auto-generated playlist",
+          "default": 50,
           "minimum": 10,
           "maximum": 200
-        },
-        "similar_songs_count": {
-          "type": "integer",
-          "title": "Similar Songs Count",
-          "description": "Number of similar songs to return for Instant Mix",
-          "default": 20,
-          "minimum": 5,
-          "maximum": 100
         },
         "max_tracks_per_artist": {
           "type": "integer",
@@ -102,57 +56,21 @@
           "minimum": 0,
           "maximum": 50
         },
+        "similar_songs_count": {
+          "type": "integer",
+          "title": "Similar Songs Count",
+          "description": "Number of similar songs to return for Instant Mix",
+          "default": 20,
+          "minimum": 5,
+          "maximum": 100
+        },
         "max_concurrency": {
           "type": "integer",
-          "title": "Max Analysis Workers",
-          "description": "Number of concurrent analysis tasks. Reduce to 1 or 2 for low-end hardware (e.g. Raspberry Pi) to prevent CPU overload.",
+          "title": "Max Rebuild Workers",
+          "description": "Number of concurrent playlist rebuild tasks.",
           "default": 2,
           "minimum": 1,
           "maximum": 8
-        },
-        "playlist_variation_pool": {
-          "type": "integer",
-          "title": "Variation Pool",
-          "description": "Playlists draw randomly from the top N × pool qualifying tracks. Higher = more variety each refresh. 1 = always the same tracks.",
-          "default": 3,
-          "minimum": 1,
-          "maximum": 10
-        },
-        "happy_threshold": {
-          "type": "number",
-          "title": "Happy Threshold",
-          "description": "Minimum score (0-1) for happy mood classification",
-          "default": 0.55
-        },
-        "chill_threshold": {
-          "type": "number",
-          "title": "Chill Threshold",
-          "description": "Minimum score (0-1) for chill/relaxed mood classification",
-          "default": 0.40
-        },
-        "energetic_threshold": {
-          "type": "number",
-          "title": "Energetic Threshold",
-          "description": "Minimum score (0-1) for energetic/danceable classification",
-          "default": 0.6
-        },
-        "party_threshold": {
-          "type": "number",
-          "title": "Party Threshold",
-          "description": "Minimum score (0-1) for party mood classification",
-          "default": 0.55
-        },
-        "melancholy_threshold": {
-          "type": "number",
-          "title": "Melancholy Threshold",
-          "description": "Minimum score (0-1) for sad/melancholy mood classification",
-          "default": 0.45
-        },
-        "aggressive_threshold": {
-          "type": "number",
-          "title": "Aggressive Threshold",
-          "description": "Minimum score (0-1) for aggressive mood classification",
-          "default": 0.55
         },
         "show_dates_in_title": {
           "type": "boolean",
@@ -171,82 +89,6 @@
           "title": "Creation Date Sync Schedule",
           "description": "Cron expression for when to scan and update the creation dates on all playlists.",
           "default": "0 5 * * *"
-        },
-        "run_genre_migration": {
-          "type": "boolean",
-          "title": "Run Genre Migration",
-          "description": "Patches existing analyzed tracks with genre data from Navidrome (no re-analysis). Enable once, let it run, then disable.",
-          "default": false
-        },
-        "genre_migration_schedule": {
-          "type": "string",
-          "title": "Genre Migration Schedule",
-          "description": "Cron expression for when to run the genre migration pass.",
-          "default": "0 1 * * *"
-        },
-        "chill_excluded_genres": {
-          "type": "string",
-          "title": "Chill Mix -Excluded Genres",
-          "description": "Comma-separated genre keywords excluded from Chill Mix. Leave empty for defaults: metal, hard rock, punk, hardcore, industrial, grunge, thrash",
-          "default": ""
-        },
-        "sleep_excluded_genres": {
-          "type": "string",
-          "title": "Sleep Mix -Excluded Genres",
-          "description": "Comma-separated genre keywords excluded from Sleep Mix. Leave empty for defaults: metal, hard rock, punk, hardcore, industrial, grunge, thrash, dance, techno, trance, house, edm, drum and bass",
-          "default": ""
-        },
-        "study_excluded_genres": {
-          "type": "string",
-          "title": "Study Mix -Excluded Genres",
-          "description": "Comma-separated genre keywords excluded from Study Mix. Leave empty for defaults: metal, punk, hardcore, industrial",
-          "default": ""
-        },
-        "dining_excluded_genres": {
-          "type": "string",
-          "title": "Dining Mix -Excluded Genres",
-          "description": "Comma-separated genre keywords excluded from Dining Mix. Leave empty for defaults: metal, hard rock, punk, hardcore, industrial",
-          "default": ""
-        },
-        "background_excluded_genres": {
-          "type": "string",
-          "title": "Background Mix -Excluded Genres",
-          "description": "Comma-separated genre keywords excluded from Background Mix. Leave empty for defaults: metal, hard rock, punk, hardcore, industrial",
-          "default": ""
-        },
-        "road_trip_excluded_genres": {
-          "type": "string",
-          "title": "Road Trip Mix -Excluded Genres",
-          "description": "Comma-separated genre keywords excluded from Road Trip Mix. Leave empty for defaults: metal, hardcore, industrial",
-          "default": ""
-        },
-        "lastfm_api_key": {
-          "type": "string",
-          "title": "Last.fm API Key",
-          "description": "Optional. Improves mood accuracy using crowd-sourced listener tags (e.g. 'chill', 'metal', 'melancholy'). Get a free key at https://www.last.fm/api/account/create",
-          "default": ""
-        },
-        "genre_boost_weight": {
-          "type": "number",
-          "title": "Genre Boost Weight",
-          "description": "Multiplier for genre-based score adjustments (0.0 = disabled, 1.0 = normal, 2.0 = double influence)",
-          "default": 1.0,
-          "minimum": 0.0,
-          "maximum": 2.0
-        },
-        "lastfm_boost_weight": {
-          "type": "number",
-          "title": "Last.fm Boost Weight",
-          "description": "Multiplier for Last.fm tag-based score adjustments (0.0 = disabled, 1.0 = normal, 2.0 = double influence)",
-          "default": 1.0,
-          "minimum": 0.0,
-          "maximum": 2.0
-        },
-        "force_reanalyze_all": {
-          "type": "boolean",
-          "title": "Force Re-analyze Entire Library",
-          "description": "When enabled, the next analysis run will re-analyze every track regardless of existing scores. Disable again after the run completes.",
-          "default": false
         }
       }
     },
@@ -255,7 +97,7 @@
       "elements": [
         {
           "type": "Label",
-          "text": "Need help? Full setup guide: https://github.com/RFLundgren/navidrome-mood-plugin/blob/master/HELP.md"
+          "text": "Requires the AI Auto-Tagging plugin to have already tagged your library. Need help? See HELP.md."
         },
         {
           "type": "Group",
@@ -288,18 +130,18 @@
         },
         {
           "type": "Group",
-          "label": "Analyzer Service",
+          "label": "Playlists",
           "elements": [
             {
               "type": "HorizontalLayout",
               "elements": [
                 {
                   "type": "Control",
-                  "scope": "#/properties/analyzer_url"
+                  "scope": "#/properties/rebuild_schedule"
                 },
                 {
                   "type": "Control",
-                  "scope": "#/properties/music_path"
+                  "scope": "#/properties/playlist_tag_categories"
                 }
               ]
             },
@@ -308,37 +150,11 @@
               "elements": [
                 {
                   "type": "Control",
-                  "scope": "#/properties/auto_analyze"
+                  "scope": "#/properties/playlist_size"
                 },
                 {
                   "type": "Control",
-                  "scope": "#/properties/analyze_schedule"
-                }
-              ]
-            },
-            {
-              "type": "HorizontalLayout",
-              "elements": [
-                {
-                  "type": "Control",
-                  "scope": "#/properties/reanalyze_uncertain"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/reanalyze_percent"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/force_reanalyze_all"
-                }
-              ]
-            },
-            {
-              "type": "HorizontalLayout",
-              "elements": [
-                {
-                  "type": "Control",
-                  "scope": "#/properties/reanalyze_schedule"
+                  "scope": "#/properties/max_tracks_per_artist"
                 },
                 {
                   "type": "Control",
@@ -351,152 +167,7 @@
               "elements": [
                 {
                   "type": "Control",
-                  "scope": "#/properties/lastfm_api_key",
-                  "options": {
-                    "format": "password"
-                  }
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/genre_boost_weight"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/lastfm_boost_weight"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "Group",
-          "label": "Playlists",
-          "elements": [
-            {
-              "type": "HorizontalLayout",
-              "elements": [
-                {
-                  "type": "Control",
-                  "scope": "#/properties/playlist_track_count"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/max_tracks_per_artist"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/playlist_variation_pool"
-                }
-              ]
-            },
-            {
-              "type": "HorizontalLayout",
-              "elements": [
-                {
-                  "type": "Control",
                   "scope": "#/properties/similar_songs_count"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/playlist_refresh_schedule"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "Group",
-          "label": "Mood Thresholds",
-          "elements": [
-            {
-              "type": "HorizontalLayout",
-              "elements": [
-                {
-                  "type": "Control",
-                  "scope": "#/properties/happy_threshold"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/chill_threshold"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/energetic_threshold"
-                }
-              ]
-            },
-            {
-              "type": "HorizontalLayout",
-              "elements": [
-                {
-                  "type": "Control",
-                  "scope": "#/properties/party_threshold"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/melancholy_threshold"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/aggressive_threshold"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "Group",
-          "label": "Genre Exclusions",
-          "elements": [
-            {
-              "type": "HorizontalLayout",
-              "elements": [
-                {
-                  "type": "Control",
-                  "scope": "#/properties/run_genre_migration"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/genre_migration_schedule"
-                }
-              ]
-            },
-            {
-              "type": "HorizontalLayout",
-              "elements": [
-                {
-                  "type": "Control",
-                  "scope": "#/properties/chill_excluded_genres"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/sleep_excluded_genres"
-                }
-              ]
-            },
-            {
-              "type": "HorizontalLayout",
-              "elements": [
-                {
-                  "type": "Control",
-                  "scope": "#/properties/study_excluded_genres"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/dining_excluded_genres"
-                }
-              ]
-            },
-            {
-              "type": "HorizontalLayout",
-              "elements": [
-                {
-                  "type": "Control",
-                  "scope": "#/properties/background_excluded_genres"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/road_trip_excluded_genres"
                 }
               ]
             }
@@ -535,31 +206,24 @@
   },
   "permissions": {
     "http": {
-      "reason": "Call the mood analyzer service for audio analysis",
+      "reason": "Call Navidrome's own Subsonic API directly when scheduled/background tasks run outside a user request context",
       "requiredHosts": ["*"]
     },
-    "library": {
-      "reason": "Read track metadata and file paths for analysis"
-    },
     "subsonicapi": {
-      "reason": "Create and manage mood-based playlists"
+      "reason": "Read tags and track metadata, and create/manage tag-based playlists"
     },
     "scheduler": {
-      "reason": "Schedule periodic analysis and playlist refresh tasks"
+      "reason": "Schedule periodic playlist rebuilds"
     },
     "taskqueue": {
-      "reason": "Process audio analysis in background without blocking the scheduler",
+      "reason": "Rebuild each tag's playlist in the background without blocking the scheduler",
       "maxConcurrency": 4
     },
-    "kvstore": {
-      "reason": "Store mood analysis scores for each track",
-      "maxSize": "50MB"
-    },
     "config": {
-      "reason": "Read user-configured thresholds and service URLs"
+      "reason": "Read user-configured playlist and connection settings"
     },
     "users": {
-      "reason": "Create per-user mood playlists"
+      "reason": "Create per-user tag-based playlists"
     }
   }
 }
