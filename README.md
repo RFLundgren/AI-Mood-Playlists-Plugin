@@ -8,7 +8,7 @@ instead of running its own audio analysis.
 
 ## Status
 
-**Working, tested end-to-end in production.** Builds cleanly via TinyGo, 24 unit tests pass natively (no WASM
+**Working, tested end-to-end in production.** Builds cleanly via TinyGo, 39 unit tests pass natively (no WASM
 runtime needed), and it's been run against a real library with real AI-Auto-Tagging-written tags.
 
 ## Why this fork exists
@@ -47,6 +47,9 @@ cost belongs to AI Auto-Tagging; see that repo's README for its cost disclaimer.
    prefix is configurable — see **Naming your playlists** below.
 4. Instant Mix is reimplemented around shared-tag overlap: similar tracks are ranked by how many tags they share
    with the source track, instead of continuous audio-vector distance (which discrete tags can't represent).
+5. Optionally, user-defined combination playlists (genre AND mood together, e.g. "Workout Rock") are built the
+   same way from their own matching track set — see **Building your own genre + mood combination playlists**
+   below.
 
 Playlist cover art is not something this plugin sets — Navidrome automatically generates a 4-tile mosaic from a
 playlist's own tracks' album art the moment it has tracks, so this comes for free with zero extra work.
@@ -99,6 +102,46 @@ If you change the prefix after playlists already exist under the old one, the ol
 as-is (they're orphaned, not renamed or deleted) and new ones are created under the new prefix on the next
 rebuild — so it's worth deleting the old ones by hand if you don't want duplicates.
 
+## Building your own genre + mood combination playlists
+
+Everything above builds one playlist per single tag value (one genre, or one mood). The **Custom Combination
+Playlists** field lets you go further and define your own named playlists that combine **one or more genres AND
+one or more moods** — e.g. a "Workout Rock" playlist that's specifically rock/metal tracks that are also
+energetic/aggressive, not just rock in general.
+
+This field is optional and empty by default. Each line (or, if your config screen only gives you a single-line
+box, each `;`-separated entry — both work) defines one playlist, in this form:
+
+```
+Name: genre=value1,value2 | mood=value1,value2 | size=N | artist_cap=N
+```
+
+For example:
+
+```
+Workout Rock: genre=rock,metal | mood=energetic,aggressive
+Rainy Day Reading: genre=folk,ambient | mood=melancholy,peaceful | size=25 | artist_cap=1
+```
+
+- **Name** (before the first `:`) is whatever you want the playlist called — it gets the same configurable prefix
+  as every other playlist (see **Naming your playlists** above), so "Workout Rock" becomes "AI Workout Rock" by
+  default.
+- **`genre=`** and **`mood=`** are each a comma-separated list of values. A track qualifies for the playlist if it
+  has **at least one** of the listed genres (when `genre=` is present) **and at least one** of the listed moods
+  (when `mood=` is present) — genres/moods you list are OR'd together within their own category, but genre and
+  mood are AND'd against each other. You only need one of the two categories; a genre-only or mood-only entry
+  here works the same as narrowing the regular allowlists above, just under a name you chose.
+- **`size=`** and **`artist_cap=`** are both optional, and override the plugin-wide **Tracks per Playlist** /
+  **Max Tracks per Artist** settings just for this one playlist. Leave them out to use the plugin-wide defaults.
+  `artist_cap=0` explicitly means "no per-artist limit" for this playlist, same as setting the global option to 0.
+- The values you use for genre/mood must match actual tag values AI Auto-Tagging has written (the same words used
+  in its Genre/Mood Vocabulary fields) — this field doesn't validate spelling, it just won't find any matching
+  tracks if a value is wrong or misspelled, and the playlist will end up empty.
+
+A custom playlist is entirely independent of the genre/mood allowlists — even if you've narrowed
+**Genres to Build Playlists For** down to exclude "metal", a custom entry can still reference `genre=metal`,
+since it's not going through the regular one-playlist-per-discovered-value pipeline at all.
+
 ## Configuration
 
 Set via Navidrome's Admin → Plugins → AI Mood Playlists → Config, after installing the `.ndp` package:
@@ -111,6 +154,7 @@ Set via Navidrome's Admin → Plugins → AI Mood Playlists → Config, after in
 | `playlist_tag_categories` | `genre,mood` | Which tag categories to build playlists from at all |
 | `genre_allowlist` / `mood_allowlist` | full built-in vocabulary (pre-filled, editable) | Comma-separated list of genre/mood values to build a playlist for. Delete entries to narrow it down, clear entirely to build none for that category. See **Picking which playlists get created** above |
 | `playlist_name_prefix` | `AI ` | Text prepended to every auto-generated playlist name. See **Naming your playlists** above |
+| `custom_playlists` | empty (= none) | User-defined genre+mood combination playlists, one per line/`;`. See **Building your own genre + mood combination playlists** above |
 | `playlist_size` | `50` | Tracks per playlist |
 | `max_tracks_per_artist` | `3` | Per-artist cap per playlist (0 = no limit) |
 | `similar_songs_count` | `20` | Tracks returned for Instant Mix |

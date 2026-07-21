@@ -58,6 +58,12 @@
           "description": "Text prepended to every auto-generated playlist name (e.g. 'AI Chill Mix'). Change this if it collides with playlist names you already have, or to personalize it. Leave blank to restore the default 'AI '.",
           "default": "AI "
         },
+        "custom_playlists": {
+          "type": "string",
+          "title": "Custom Combination Playlists",
+          "description": "Optional. Define your own named playlists that combine specific genres AND moods, one per line (or separated by ';'), in the form 'Name: genre=value1,value2 | mood=value1,value2 | size=N | artist_cap=N'. Example: 'Workout Rock: genre=rock,metal | mood=energetic,aggressive'. genre/mood are each optional but at least one is required; size/artist_cap are optional and override the Tracks per Playlist / Max Tracks per Artist settings just for this playlist. See the README for the full syntax and more examples.",
+          "default": ""
+        },
         "playlist_size": {
           "type": "integer",
           "title": "Tracks per Playlist",
@@ -179,6 +185,10 @@
             {
               "type": "Control",
               "scope": "#/properties/playlist_name_prefix"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/custom_playlists"
             },
             {
               "type": "HorizontalLayout",

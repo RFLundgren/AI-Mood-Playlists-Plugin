@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -196,7 +197,7 @@ func startRebuild() error {
 				continue
 			}
 		}
-		taskData, _ := json.Marshal(map[string]string{"tag": tag})
+		taskData, _ := json.Marshal(rebuildTask{Tag: tag})
 		if _, err := host.TaskEnqueue(rebuildQueue, taskData); err != nil {
 			pdk.Log(pdk.LogWarn, "Failed to queue rebuild for "+tag+": "+err.Error())
 			continue
@@ -204,22 +205,72 @@ func startRebuild() error {
 		queued++
 	}
 
-	pdk.Log(pdk.LogInfo, fmt.Sprintf("Queued %d tag playlist(s) for rebuild", queued))
+	// User-defined combination playlists (e.g. "Workout Rock" = genre rock/
+	// metal AND mood energetic/aggressive) - see parseCustomPlaylists for the
+	// config syntax. Independent of the allowlists/categories above, since a
+	// combination playlist is opt-in and named by the user, not discovered.
+	for _, def := range parseCustomPlaylists(configString("custom_playlists", "")) {
+		taskData, _ := json.Marshal(rebuildTask{
+			Name:         def.Name,
+			Genres:       def.Genres,
+			Moods:        def.Moods,
+			Size:         def.Size,
+			ArtistCap:    def.ArtistCap,
+			ArtistCapSet: def.ArtistCapSet,
+		})
+		if _, err := host.TaskEnqueue(rebuildQueue, taskData); err != nil {
+			pdk.Log(pdk.LogWarn, "Failed to queue custom playlist '"+def.Name+"': "+err.Error())
+			continue
+		}
+		queued++
+	}
+
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("Queued %d playlist(s) for rebuild", queued))
 	return nil
 }
 
+// rebuildTask is the task-queue payload for both discovered tag-value
+// playlists (Tag set) and user-defined combination playlists (Name set) -
+// exactly one of the two is populated for any given task.
+type rebuildTask struct {
+	Tag string `json:"tag,omitempty"`
+
+	Name         string   `json:"name,omitempty"`
+	Genres       []string `json:"genres,omitempty"`
+	Moods        []string `json:"moods,omitempty"`
+	Size         int      `json:"size,omitempty"`
+	ArtistCap    int      `json:"artist_cap,omitempty"`
+	ArtistCapSet bool     `json:"artist_cap_set,omitempty"`
+}
+
 func (p *moodPlugin) OnTaskExecute(req taskworker.TaskExecuteRequest) (string, error) {
-	var task struct {
-		Tag string `json:"tag"`
-	}
-	if err := json.Unmarshal(req.Payload, &task); err != nil || task.Tag == "" {
+	var task rebuildTask
+	if err := json.Unmarshal(req.Payload, &task); err != nil {
 		return "", fmt.Errorf("decoding task payload: %w", err)
 	}
 
-	if err := rebuildTagPlaylist(task.Tag); err != nil {
-		return "", err
+	switch {
+	case task.Tag != "":
+		if err := rebuildTagPlaylist(task.Tag); err != nil {
+			return "", err
+		}
+		return "rebuilt " + task.Tag, nil
+	case task.Name != "":
+		def := customPlaylistDef{
+			Name:         task.Name,
+			Genres:       task.Genres,
+			Moods:        task.Moods,
+			Size:         task.Size,
+			ArtistCap:    task.ArtistCap,
+			ArtistCapSet: task.ArtistCapSet,
+		}
+		if err := rebuildCustomPlaylist(def); err != nil {
+			return "", err
+		}
+		return "rebuilt custom playlist " + task.Name, nil
+	default:
+		return "", fmt.Errorf("task payload has neither tag nor name")
 	}
-	return "rebuilt " + task.Tag, nil
 }
 
 // rebuildTagPlaylist gathers every track carrying tag, shuffles, applies the
@@ -248,6 +299,162 @@ func rebuildTagPlaylist(tag string) error {
 	existingIDs := getExistingPlaylistIDs()
 	upsertPlaylist(tagLabel(tag), songIDs, existingIDs)
 	return nil
+}
+
+// ── Custom combination playlists ─────────────────────────────────
+
+// customPlaylistDef describes one user-defined playlist built from a
+// combination of genre and/or mood tag values - see parseCustomPlaylists for
+// the config syntax that produces these.
+type customPlaylistDef struct {
+	Name   string
+	Genres []string
+	Moods  []string
+	// Size overrides playlist_size for this playlist only; 0 means "not
+	// specified, use the global default".
+	Size int
+	// ArtistCap overrides max_tracks_per_artist for this playlist only.
+	// ArtistCapSet distinguishes "not specified" (use the global default)
+	// from an explicit 0 (no cap), the same way configVocabularyList
+	// distinguishes "unset" from "explicitly empty".
+	ArtistCap    int
+	ArtistCapSet bool
+}
+
+// parseCustomPlaylists parses the "custom_playlists" config field. Entries
+// are separated by a newline or a ";" (both are accepted since it's
+// unclear whether the config UI renders this field as a single-line box or
+// a multi-line one), each in the form:
+//
+//	Name: genre=value1,value2 | mood=value1,value2 | size=40 | artist_cap=2
+//
+// genre/mood are each optional, but at least one must be present with a
+// non-empty value list or the whole entry is skipped (a playlist needs
+// something to match tracks on). size/artist_cap are optional per-playlist
+// overrides of the plugin-wide playlist_size/max_tracks_per_artist settings.
+func parseCustomPlaylists(raw string) []customPlaylistDef {
+	raw = strings.ReplaceAll(raw, ";", "\n")
+	var defs []customPlaylistDef
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		name, rest, ok := strings.Cut(line, ":")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" {
+			continue
+		}
+
+		def := customPlaylistDef{Name: name}
+		for _, field := range strings.Split(rest, "|") {
+			key, value, ok := strings.Cut(field, "=")
+			if !ok {
+				continue
+			}
+			key = strings.ToLower(strings.TrimSpace(key))
+			value = strings.TrimSpace(value)
+			switch key {
+			case "genre", "genres":
+				def.Genres = parseList(value)
+			case "mood", "moods":
+				def.Moods = parseList(value)
+			case "size":
+				if n, err := strconv.Atoi(value); err == nil && n > 0 {
+					def.Size = n
+				}
+			case "artist_cap", "artistcap", "cap":
+				if n, err := strconv.Atoi(value); err == nil && n >= 0 {
+					def.ArtistCap = n
+					def.ArtistCapSet = true
+				}
+			}
+		}
+		if len(def.Genres) == 0 && len(def.Moods) == 0 {
+			continue
+		}
+		defs = append(defs, def)
+	}
+	return defs
+}
+
+// rebuildCustomPlaylist gathers every track matching def's genre/mood
+// combination (a track qualifies if it carries at least one of the listed
+// values in each category that was specified - categories left empty in the
+// definition impose no constraint), then selects and upserts a playlist the
+// same way rebuildTagPlaylist does for a single tag.
+func rebuildCustomPlaylist(def customPlaylistDef) error {
+	var genreTracks, moodTracks map[string]taggedTrack
+	var err error
+	if len(def.Genres) > 0 {
+		if genreTracks, err = fetchTracksForCategory("genre", def.Genres); err != nil {
+			return fmt.Errorf("fetching genre tracks for '%s': %w", def.Name, err)
+		}
+	}
+	if len(def.Moods) > 0 {
+		if moodTracks, err = fetchTracksForCategory("mood", def.Moods); err != nil {
+			return fmt.Errorf("fetching mood tracks for '%s': %w", def.Name, err)
+		}
+	}
+
+	var candidates []taggedTrack
+	switch {
+	case len(def.Genres) > 0 && len(def.Moods) > 0:
+		for id, t := range genreTracks {
+			if _, ok := moodTracks[id]; ok {
+				candidates = append(candidates, t)
+			}
+		}
+	case len(def.Genres) > 0:
+		for _, t := range genreTracks {
+			candidates = append(candidates, t)
+		}
+	default:
+		for _, t := range moodTracks {
+			candidates = append(candidates, t)
+		}
+	}
+
+	if len(candidates) == 0 {
+		pdk.Log(pdk.LogWarn, "No tracks found for custom playlist '"+def.Name+"'")
+		return nil
+	}
+
+	playlistSize := configInt("playlist_size", 50)
+	if def.Size > 0 {
+		playlistSize = def.Size
+	}
+	maxPerArtist := configInt("max_tracks_per_artist", 3)
+	if def.ArtistCapSet {
+		maxPerArtist = def.ArtistCap
+	}
+
+	songIDs := selectTracks(candidates, playlistSize, maxPerArtist)
+	if len(songIDs) == 0 {
+		pdk.Log(pdk.LogWarn, "No tracks selected for custom playlist '"+def.Name+"' after artist-cap filtering")
+		return nil
+	}
+
+	existingIDs := getExistingPlaylistIDs()
+	upsertPlaylist(playlistPrefix()+def.Name, songIDs, existingIDs)
+	return nil
+}
+
+// fetchTracksForCategory fetches and merges tracks across every "category:
+// value" tag in values, deduplicating by track ID (a track matching more
+// than one listed value in the same category should only count once).
+func fetchTracksForCategory(category string, values []string) (map[string]taggedTrack, error) {
+	result := map[string]taggedTrack{}
+	for _, v := range values {
+		tracks, err := fetchSongsByTag(category + ":" + v)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range tracks {
+			result[t.ID] = t
+		}
+	}
+	return result, nil
 }
 
 // selectTracks shuffles candidates, then walks the shuffled list applying

@@ -129,7 +129,8 @@ something the original never had: genre-based playlists, not just the 13 mood-on
    worry about.
 10. Decide whether/when to retire the original audio-analysis Docker service on the production instance, or run
     it in parallel for as long as other people are still using the original plugin.
-11. Decide on a GitHub remote / whether to publish this fork at all — no remote configured currently, by design.
+11. ~~Decide on a GitHub remote / whether to publish this fork at all~~ — done: published at
+    [github.com/RFLundgren/AI-Mood-Playlists-Plugin](https://github.com/RFLundgren/AI-Mood-Playlists-Plugin).
 
 ## Dependency on AI Auto-Tagging-Plugin
 

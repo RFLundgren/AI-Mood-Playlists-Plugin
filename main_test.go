@@ -42,6 +42,11 @@ func resetMocks() {
 	// tagLabel always reads the configurable prefix - default to "unset" so
 	// tests only need to override it if they're specifically testing that.
 	host.ConfigMock.On("Get", "playlist_name_prefix").Return("", false).Maybe()
+
+	// startRebuild always reads custom_playlists too - default to "unset"
+	// (= no custom playlists defined) so tests only need to override it if
+	// they're specifically testing the custom-playlist path.
+	host.ConfigMock.On("Get", "custom_playlists").Return("", false).Maybe()
 }
 
 // ── Pure logic ───────────────────────────────────────────────────
@@ -169,6 +174,238 @@ func TestFetchSongsByTag(t *testing.T) {
 	}, tracks)
 }
 
+// ── Custom combination playlists ─────────────────────────────────
+
+func TestParseCustomPlaylists_ParsesGenreAndMoodWithOverrides(t *testing.T) {
+	defs := parseCustomPlaylists("Workout Rock: genre=rock,metal | mood=energetic,aggressive | size=40 | artist_cap=2")
+
+	require.Len(t, defs, 1)
+	require.Equal(t, "Workout Rock", defs[0].Name)
+	require.Equal(t, []string{"rock", "metal"}, defs[0].Genres)
+	require.Equal(t, []string{"energetic", "aggressive"}, defs[0].Moods)
+	require.Equal(t, 40, defs[0].Size)
+	require.Equal(t, 2, defs[0].ArtistCap)
+	require.True(t, defs[0].ArtistCapSet)
+}
+
+func TestParseCustomPlaylists_GenreOnlyIsValid(t *testing.T) {
+	defs := parseCustomPlaylists("Just Rock: genre=rock")
+
+	require.Len(t, defs, 1)
+	require.Equal(t, []string{"rock"}, defs[0].Genres)
+	require.Empty(t, defs[0].Moods)
+	require.Zero(t, defs[0].Size)
+	require.False(t, defs[0].ArtistCapSet)
+}
+
+func TestParseCustomPlaylists_ExplicitZeroArtistCapMeansNoCap(t *testing.T) {
+	defs := parseCustomPlaylists("No Cap: mood=chill | artist_cap=0")
+
+	require.Len(t, defs, 1)
+	require.True(t, defs[0].ArtistCapSet)
+	require.Equal(t, 0, defs[0].ArtistCap)
+}
+
+func TestParseCustomPlaylists_SupportsNewlineAndSemicolonSeparators(t *testing.T) {
+	defs := parseCustomPlaylists("One: genre=rock\nTwo: mood=chill; Three: genre=jazz")
+
+	require.Len(t, defs, 3)
+	require.Equal(t, "One", defs[0].Name)
+	require.Equal(t, "Two", defs[1].Name)
+	require.Equal(t, "Three", defs[2].Name)
+}
+
+func TestParseCustomPlaylists_SkipsEntriesWithoutGenreOrMood(t *testing.T) {
+	defs := parseCustomPlaylists("No Criteria: size=40")
+
+	require.Empty(t, defs)
+}
+
+func TestParseCustomPlaylists_SkipsEntriesWithoutAName(t *testing.T) {
+	defs := parseCustomPlaylists("genre=rock")
+
+	require.Empty(t, defs)
+}
+
+func TestParseCustomPlaylists_BlankInputYieldsNoEntries(t *testing.T) {
+	require.Empty(t, parseCustomPlaylists(""))
+	require.Empty(t, parseCustomPlaylists("   "))
+}
+
+func TestRebuildCustomPlaylist_GenreAndMoodAreCombinedWithAnd(t *testing.T) {
+	resetMocks()
+	host.SubsonicAPIMock.On("Call", "getSongsByUserTag.view?tag=genre%3Arock").
+		Return(`{"subsonic-response":{"songsByUserTag":{"song":[
+			{"id":"t1","title":"Rock Only","artist":"A"},
+			{"id":"t2","title":"Rock And Energetic","artist":"B"}
+		]}}}`, nil).Once()
+	host.SubsonicAPIMock.On("Call", "getSongsByUserTag.view?tag=mood%3Aenergetic").
+		Return(`{"subsonic-response":{"songsByUserTag":{"song":[
+			{"id":"t2","title":"Rock And Energetic","artist":"B"},
+			{"id":"t3","title":"Energetic Only","artist":"C"}
+		]}}}`, nil).Once()
+	host.ConfigMock.On("GetInt", "playlist_size").Return(int64(50), true).Once()
+	host.ConfigMock.On("GetInt", "max_tracks_per_artist").Return(int64(3), true).Once()
+	host.SubsonicAPIMock.On("Call", "getPlaylists.view?").
+		Return(`{"subsonic-response":{"playlists":{"playlist":[]}}}`, nil).Times(2)
+	host.ConfigMock.On("Get", "show_dates_in_title").Return("false", true)
+	var createdURI string
+	host.SubsonicAPIMock.On("Call", mock.MatchedBy(func(uri string) bool {
+		if strings.HasPrefix(uri, "createPlaylist?") {
+			createdURI = uri
+			return true
+		}
+		return false
+	})).Return(`{"subsonic-response":{}}`, nil).Once()
+
+	err := rebuildCustomPlaylist(customPlaylistDef{
+		Name:   "Workout Rock",
+		Genres: []string{"rock"},
+		Moods:  []string{"energetic"},
+	})
+
+	require.NoError(t, err)
+	require.Contains(t, createdURI, "songId=t2")
+	require.NotContains(t, createdURI, "songId=t1")
+	require.NotContains(t, createdURI, "songId=t3")
+}
+
+func TestRebuildCustomPlaylist_GenreOnlyMatchesAnyListedGenre(t *testing.T) {
+	resetMocks()
+	host.SubsonicAPIMock.On("Call", "getSongsByUserTag.view?tag=genre%3Arock").
+		Return(`{"subsonic-response":{"songsByUserTag":{"song":[{"id":"t1","title":"R","artist":"A"}]}}}`, nil).Once()
+	host.SubsonicAPIMock.On("Call", "getSongsByUserTag.view?tag=genre%3Ametal").
+		Return(`{"subsonic-response":{"songsByUserTag":{"song":[{"id":"t2","title":"M","artist":"B"}]}}}`, nil).Once()
+	host.ConfigMock.On("GetInt", "playlist_size").Return(int64(50), true).Once()
+	host.ConfigMock.On("GetInt", "max_tracks_per_artist").Return(int64(3), true).Once()
+	host.SubsonicAPIMock.On("Call", "getPlaylists.view?").
+		Return(`{"subsonic-response":{"playlists":{"playlist":[]}}}`, nil).Times(2)
+	host.ConfigMock.On("Get", "show_dates_in_title").Return("false", true)
+	var createdURI string
+	host.SubsonicAPIMock.On("Call", mock.MatchedBy(func(uri string) bool {
+		if strings.HasPrefix(uri, "createPlaylist?") {
+			createdURI = uri
+			return true
+		}
+		return false
+	})).Return(`{"subsonic-response":{}}`, nil).Once()
+
+	err := rebuildCustomPlaylist(customPlaylistDef{Name: "Rock Or Metal", Genres: []string{"rock", "metal"}})
+
+	require.NoError(t, err)
+	require.Contains(t, createdURI, "songId=t1")
+	require.Contains(t, createdURI, "songId=t2")
+}
+
+func TestRebuildCustomPlaylist_SizeAndArtistCapOverridesWinOverGlobalDefaults(t *testing.T) {
+	resetMocks()
+	host.SubsonicAPIMock.On("Call", "getSongsByUserTag.view?tag=mood%3Achill").
+		Return(`{"subsonic-response":{"songsByUserTag":{"song":[
+			{"id":"t1","title":"One","artist":"Same"},
+			{"id":"t2","title":"Two","artist":"Same"},
+			{"id":"t3","title":"Three","artist":"Other"}
+		]}}}`, nil).Once()
+	// The globals are still read (same as rebuildTagPlaylist always does),
+	// but the per-playlist overrides below must be what actually gets used.
+	host.ConfigMock.On("GetInt", "playlist_size").Return(int64(50), true).Once()
+	host.ConfigMock.On("GetInt", "max_tracks_per_artist").Return(int64(3), true).Once()
+	host.SubsonicAPIMock.On("Call", "getPlaylists.view?").
+		Return(`{"subsonic-response":{"playlists":{"playlist":[]}}}`, nil).Times(2)
+	host.ConfigMock.On("Get", "show_dates_in_title").Return("false", true)
+	var createdURI string
+	host.SubsonicAPIMock.On("Call", mock.MatchedBy(func(uri string) bool {
+		if strings.HasPrefix(uri, "createPlaylist?") {
+			createdURI = uri
+			return true
+		}
+		return false
+	})).Return(`{"subsonic-response":{}}`, nil).Once()
+
+	err := rebuildCustomPlaylist(customPlaylistDef{
+		Name: "Small Chill", Moods: []string{"chill"}, Size: 1, ArtistCap: 1, ArtistCapSet: true,
+	})
+
+	require.NoError(t, err)
+	// size=1 overriding the global default of 50 means exactly one songId,
+	// despite three matching tracks and an artist cap that would allow two
+	// from "Same".
+	require.Equal(t, 1, strings.Count(createdURI, "songId="))
+}
+
+func TestRebuildCustomPlaylist_NoMatchingTracksIsNotAnError(t *testing.T) {
+	resetMocks()
+	host.SubsonicAPIMock.On("Call", "getSongsByUserTag.view?tag=genre%3Arock").
+		Return(`{"subsonic-response":{"songsByUserTag":{"song":[{"id":"t1","title":"R","artist":"A"}]}}}`, nil).Once()
+	host.SubsonicAPIMock.On("Call", "getSongsByUserTag.view?tag=mood%3Achill").
+		Return(`{"subsonic-response":{"songsByUserTag":{}}}`, nil).Once()
+
+	err := rebuildCustomPlaylist(customPlaylistDef{Name: "Empty", Genres: []string{"rock"}, Moods: []string{"chill"}})
+
+	require.NoError(t, err)
+}
+
+func TestStartRebuild_QueuesCustomPlaylistsAlongsideTagPlaylists(t *testing.T) {
+	resetMocks()
+	host.ConfigMock.ExpectedCalls, host.ConfigMock.Calls = nil, nil
+	host.ConfigMock.On("Get", "navidrome_url").Return("", false).Maybe()
+	host.ConfigMock.On("Get", "navidrome_user").Return("", false).Maybe()
+	host.ConfigMock.On("Get", "navidrome_password").Return("", false).Maybe()
+	host.ConfigMock.On("Get", "genre_allowlist").Return("", false).Maybe()
+	host.ConfigMock.On("Get", "mood_allowlist").Return("", false).Maybe()
+
+	host.SubsonicAPIMock.On("Call", "getAllUserTags.view?").
+		Return(`{"subsonic-response":{"userTags":{"tag":[]}}}`, nil).Once()
+	host.ConfigMock.On("Get", "playlist_tag_categories").Return("genre,mood", true).Once()
+	host.ConfigMock.On("Get", "custom_playlists").
+		Return("Workout Rock: genre=rock,metal | mood=energetic", true).Once()
+
+	host.TaskMock.On("Enqueue", rebuildQueue, mock.MatchedBy(func(payload []byte) bool {
+		var task rebuildTask
+		if err := json.Unmarshal(payload, &task); err != nil {
+			return false
+		}
+		return task.Name == "Workout Rock" &&
+			strings.Join(task.Genres, ",") == "rock,metal" &&
+			strings.Join(task.Moods, ",") == "energetic"
+	})).Return("task-1", nil).Once()
+
+	err := startRebuild()
+
+	require.NoError(t, err)
+	host.TaskMock.AssertExpectations(t)
+}
+
+func TestOnTaskExecute_DispatchesCustomPlaylistPayload(t *testing.T) {
+	resetMocks()
+	host.SubsonicAPIMock.On("Call", "getSongsByUserTag.view?tag=genre%3Arock").
+		Return(`{"subsonic-response":{"songsByUserTag":{"song":[{"id":"t1","title":"T","artist":"A"}]}}}`, nil).Once()
+	host.ConfigMock.On("GetInt", "playlist_size").Return(int64(50), true).Once()
+	host.ConfigMock.On("GetInt", "max_tracks_per_artist").Return(int64(3), true).Once()
+	host.SubsonicAPIMock.On("Call", "getPlaylists.view?").
+		Return(`{"subsonic-response":{"playlists":{"playlist":[]}}}`, nil).Times(2)
+	host.ConfigMock.On("Get", "show_dates_in_title").Return("false", true)
+	host.SubsonicAPIMock.On("Call", mock.MatchedBy(func(uri string) bool {
+		return strings.HasPrefix(uri, "createPlaylist?")
+	})).Return(`{"subsonic-response":{}}`, nil).Once()
+
+	payload, _ := json.Marshal(rebuildTask{Name: "Just Rock", Genres: []string{"rock"}, Size: 20})
+
+	result, err := (&moodPlugin{}).OnTaskExecute(taskworker.TaskExecuteRequest{Payload: payload})
+
+	require.NoError(t, err)
+	require.Equal(t, "rebuilt custom playlist Just Rock", result)
+}
+
+func TestOnTaskExecute_EmptyPayloadErrors(t *testing.T) {
+	resetMocks()
+
+	payload, _ := json.Marshal(rebuildTask{})
+
+	_, err := (&moodPlugin{}).OnTaskExecute(taskworker.TaskExecuteRequest{Payload: payload})
+
+	require.Error(t, err)
+}
+
 // ── Rebuild pipeline ─────────────────────────────────────────────
 
 func TestStartRebuild_FiltersToConfiguredCategoriesAndEnqueues(t *testing.T) {
@@ -210,6 +447,7 @@ func TestStartRebuild_GenreAllowlistOnlyNarrowsGenres(t *testing.T) {
 	host.ConfigMock.On("Get", "navidrome_user").Return("", false).Maybe()
 	host.ConfigMock.On("Get", "navidrome_password").Return("", false).Maybe()
 	host.ConfigMock.On("Get", "mood_allowlist").Return("", false).Maybe()
+	host.ConfigMock.On("Get", "custom_playlists").Return("", false).Maybe()
 
 	host.SubsonicAPIMock.On("Call", "getAllUserTags.view?").
 		Return(`{"subsonic-response":{"userTags":{"tag":["genre:rock","genre:electronic","mood:chill"]}}}`, nil).Once()
@@ -246,6 +484,7 @@ func TestStartRebuild_ExplicitlyEmptyAllowlistBuildsNothingForThatCategory(t *te
 	host.ConfigMock.On("Get", "navidrome_user").Return("", false).Maybe()
 	host.ConfigMock.On("Get", "navidrome_password").Return("", false).Maybe()
 	host.ConfigMock.On("Get", "genre_allowlist").Return("", true).Once() // present but cleared
+	host.ConfigMock.On("Get", "custom_playlists").Return("", false).Maybe()
 
 	host.SubsonicAPIMock.On("Call", "getAllUserTags.view?").
 		Return(`{"subsonic-response":{"userTags":{"tag":["genre:rock","mood:chill"]}}}`, nil).Once()
