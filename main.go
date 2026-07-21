@@ -437,7 +437,10 @@ func upsertPlaylist(baseLabel string, songIDs []string, existingIDs map[string]s
 	var params string
 	isUpdate := plID != ""
 	if isUpdate {
-		params = "playlistId=" + url.QueryEscape(plID) + "&name=" + url.QueryEscape(fullName)
+		// Navidrome's createPlaylist ignores "name" when playlistId is set
+		// (Create() ignores it and reuses the existing name) - the follow-up
+		// updatePlaylist call below is what actually renames it, via "name".
+		params = "playlistId=" + url.QueryEscape(plID)
 	} else {
 		params = "name=" + url.QueryEscape(fullName)
 	}
