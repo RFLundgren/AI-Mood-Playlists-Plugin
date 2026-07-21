@@ -41,34 +41,22 @@
           "default": "genre,mood"
         },
         "genre_allowlist": {
-          "type": "array",
+          "type": "string",
           "title": "Genres to Build Playlists For",
-          "description": "Leave empty to auto-create a playlist for every genre AI Auto-Tagging has used. Select specific genres to narrow it down.",
-          "items": {
-            "type": "string",
-            "enum": [
-              "rock", "pop", "electronic", "hip hop", "jazz", "classical", "metal",
-              "folk", "country", "r&b", "soul", "blues", "reggae", "punk", "indie",
-              "ambient", "new age", "world", "funk", "disco", "house", "techno",
-              "alternative", "soundtrack", "experimental"
-            ]
-          },
-          "uniqueItems": true,
-          "default": []
+          "description": "Comma-separated list of genres to auto-create playlists for. Pre-filled with AI Auto-Tagging's built-in genre vocabulary - remove any you don't want a playlist for. Clearing the field entirely means no genre playlists are built.",
+          "default": "rock, pop, electronic, hip hop, jazz, classical, metal, folk, country, r&b, soul, blues, reggae, punk, indie, ambient, new age, world, funk, disco, house, techno, alternative, soundtrack, experimental"
         },
         "mood_allowlist": {
-          "type": "array",
+          "type": "string",
           "title": "Moods to Build Playlists For",
-          "description": "Leave empty to auto-create a playlist for every mood AI Auto-Tagging has used. Select specific moods to narrow it down.",
-          "items": {
-            "type": "string",
-            "enum": [
-              "happy", "chill", "energetic", "melancholy", "party", "aggressive",
-              "romantic", "dreamy", "dark", "uplifting", "nostalgic", "peaceful"
-            ]
-          },
-          "uniqueItems": true,
-          "default": []
+          "description": "Comma-separated list of moods to auto-create playlists for. Pre-filled with AI Auto-Tagging's built-in mood vocabulary - remove any you don't want a playlist for. Clearing the field entirely means no mood playlists are built.",
+          "default": "happy, chill, energetic, melancholy, party, aggressive, romantic, dreamy, dark, uplifting, nostalgic, peaceful"
+        },
+        "playlist_name_prefix": {
+          "type": "string",
+          "title": "Playlist Name Prefix",
+          "description": "Text prepended to every auto-generated playlist name (e.g. 'AI Chill Mix'). Change this if it collides with playlist names you already have, or to personalize it. Leave blank to restore the default 'AI '.",
+          "default": "AI "
         },
         "playlist_size": {
           "type": "integer",
@@ -187,6 +175,10 @@
                   "scope": "#/properties/mood_allowlist"
                 }
               ]
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/playlist_name_prefix"
             },
             {
               "type": "HorizontalLayout",

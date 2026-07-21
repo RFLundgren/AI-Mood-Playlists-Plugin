@@ -38,6 +38,10 @@ func resetMocks() {
 	// override the one(s) they actually care about.
 	host.ConfigMock.On("Get", "genre_allowlist").Return("", false).Maybe()
 	host.ConfigMock.On("Get", "mood_allowlist").Return("", false).Maybe()
+
+	// tagLabel always reads the configurable prefix - default to "unset" so
+	// tests only need to override it if they're specifically testing that.
+	host.ConfigMock.On("Get", "playlist_name_prefix").Return("", false).Maybe()
 }
 
 // ── Pure logic ───────────────────────────────────────────────────
@@ -49,9 +53,18 @@ func TestTitleCase(t *testing.T) {
 }
 
 func TestTagLabel(t *testing.T) {
+	resetMocks()
 	require.Equal(t, "AI Chill Mix", tagLabel("mood:chill"))
 	require.Equal(t, "AI New Age", tagLabel("genre:new age"))
 	require.Equal(t, "AI Untagged", tagLabel("untagged"))
+}
+
+func TestTagLabel_UsesConfiguredPrefix(t *testing.T) {
+	resetMocks()
+	host.ConfigMock.ExpectedCalls, host.ConfigMock.Calls = nil, nil
+	host.ConfigMock.On("Get", "playlist_name_prefix").Return("MyMix: ", true).Once()
+
+	require.Equal(t, "MyMix: Chill Mix", tagLabel("mood:chill"))
 }
 
 func TestParseList(t *testing.T) {
@@ -60,16 +73,28 @@ func TestParseList(t *testing.T) {
 	require.Empty(t, parseList(""))
 }
 
-func TestConfigStringArray(t *testing.T) {
+func TestConfigVocabularyList_NeverConfiguredFallsBackToDefault(t *testing.T) {
 	resetMocks()
-	host.ConfigMock.ExpectedCalls, host.ConfigMock.Calls = nil, nil // avoid the blanket defaults below
-	host.ConfigMock.On("Get", "genre_allowlist").Return(`["rock","pop"]`, true).Once()
-	host.ConfigMock.On("Get", "unset_field").Return("", false).Once()
-	host.ConfigMock.On("Get", "malformed_field").Return("not json", true).Once()
+	host.ConfigMock.ExpectedCalls, host.ConfigMock.Calls = nil, nil       // avoid the blanket defaults below
+	host.ConfigMock.On("Get", "genre_allowlist").Return("", false).Once() // key absent entirely
 
-	require.Equal(t, []string{"rock", "pop"}, configStringArray("genre_allowlist"))
-	require.Nil(t, configStringArray("unset_field"))
-	require.Nil(t, configStringArray("malformed_field"))
+	require.Equal(t, []string{"rock", "pop"}, configVocabularyList("genre_allowlist", "rock, pop"))
+}
+
+func TestConfigVocabularyList_ExplicitValueOverridesDefault(t *testing.T) {
+	resetMocks()
+	host.ConfigMock.ExpectedCalls, host.ConfigMock.Calls = nil, nil
+	host.ConfigMock.On("Get", "genre_allowlist").Return("jazz", true).Once()
+
+	require.Equal(t, []string{"jazz"}, configVocabularyList("genre_allowlist", "rock, pop"))
+}
+
+func TestConfigVocabularyList_ExplicitlyEmptyMeansNoValues(t *testing.T) {
+	resetMocks()
+	host.ConfigMock.ExpectedCalls, host.ConfigMock.Calls = nil, nil
+	host.ConfigMock.On("Get", "genre_allowlist").Return("", true).Once() // key present but cleared
+
+	require.Empty(t, configVocabularyList("genre_allowlist", "rock, pop"))
 }
 
 func TestSelectTracks_AppliesPerArtistCap(t *testing.T) {
@@ -189,7 +214,7 @@ func TestStartRebuild_GenreAllowlistOnlyNarrowsGenres(t *testing.T) {
 	host.SubsonicAPIMock.On("Call", "getAllUserTags.view?").
 		Return(`{"subsonic-response":{"userTags":{"tag":["genre:rock","genre:electronic","mood:chill"]}}}`, nil).Once()
 	host.ConfigMock.On("Get", "playlist_tag_categories").Return("genre,mood", true).Once()
-	host.ConfigMock.On("Get", "genre_allowlist").Return(`["rock"]`, true).Once()
+	host.ConfigMock.On("Get", "genre_allowlist").Return("rock", true).Once()
 
 	host.TaskMock.On("Enqueue", rebuildQueue, mock.MatchedBy(func(payload []byte) bool {
 		var task map[string]string
@@ -211,6 +236,36 @@ func TestStartRebuild_GenreAllowlistOnlyNarrowsGenres(t *testing.T) {
 		var task map[string]string
 		json.Unmarshal(payload, &task)
 		return task["tag"] == "genre:electronic"
+	}))
+}
+
+func TestStartRebuild_ExplicitlyEmptyAllowlistBuildsNothingForThatCategory(t *testing.T) {
+	resetMocks()
+	host.ConfigMock.ExpectedCalls, host.ConfigMock.Calls = nil, nil // drop the blanket "unset" defaults below
+	host.ConfigMock.On("Get", "navidrome_url").Return("", false).Maybe()
+	host.ConfigMock.On("Get", "navidrome_user").Return("", false).Maybe()
+	host.ConfigMock.On("Get", "navidrome_password").Return("", false).Maybe()
+	host.ConfigMock.On("Get", "genre_allowlist").Return("", true).Once() // present but cleared
+
+	host.SubsonicAPIMock.On("Call", "getAllUserTags.view?").
+		Return(`{"subsonic-response":{"userTags":{"tag":["genre:rock","mood:chill"]}}}`, nil).Once()
+	host.ConfigMock.On("Get", "playlist_tag_categories").Return("genre,mood", true).Once()
+	host.ConfigMock.On("Get", "mood_allowlist").Return("", false).Once() // never configured - falls back to default (allow all)
+
+	host.TaskMock.On("Enqueue", rebuildQueue, mock.MatchedBy(func(payload []byte) bool {
+		var task map[string]string
+		json.Unmarshal(payload, &task)
+		return task["tag"] == "mood:chill"
+	})).Return("task-1", nil).Once()
+
+	err := startRebuild()
+
+	require.NoError(t, err)
+	host.TaskMock.AssertExpectations(t)
+	host.TaskMock.AssertNotCalled(t, "Enqueue", rebuildQueue, mock.MatchedBy(func(payload []byte) bool {
+		var task map[string]string
+		json.Unmarshal(payload, &task)
+		return task["tag"] == "genre:rock"
 	}))
 }
 

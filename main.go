@@ -172,13 +172,14 @@ func startRebuild() error {
 	}
 
 	categories := parseList(configString("playlist_tag_categories", "genre,mood"))
-	// Per-category allowlists narrow which discovered tag values actually get
-	// a playlist. Empty means "every value in that category" (the default,
-	// so the plugin still does something useful out of the box) - set one to
-	// pick exactly which playlists you want instead of one per tag value,
-	// which can be a lot once AI Auto-Tagging has covered a whole library.
-	genreAllowlist := configStringArray("genre_allowlist")
-	moodAllowlist := configStringArray("mood_allowlist")
+	// Per-category allowlists are the definitive list of which values in that
+	// category get a playlist - pre-filled by default with every value in
+	// AI Auto-Tagging's own default vocabulary, so a fresh install still
+	// builds a playlist per value out of the box, but editable down to
+	// exactly what's wanted. Clearing a list entirely means "no playlists
+	// for this category", not "allow everything" - see configVocabularyList.
+	genreAllowlist := configVocabularyList("genre_allowlist", defaultGenreVocabulary)
+	moodAllowlist := configVocabularyList("mood_allowlist", defaultMoodVocabulary)
 	queued := 0
 	for _, tag := range tags {
 		category, value, ok := strings.Cut(tag, ":")
@@ -187,11 +188,11 @@ func startRebuild() error {
 		}
 		switch category {
 		case "genre":
-			if len(genreAllowlist) > 0 && !slices.Contains(genreAllowlist, value) {
+			if !slices.Contains(genreAllowlist, value) {
 				continue
 			}
 		case "mood":
-			if len(moodAllowlist) > 0 && !slices.Contains(moodAllowlist, value) {
+			if !slices.Contains(moodAllowlist, value) {
 				continue
 			}
 		}
@@ -284,21 +285,29 @@ func selectTracks(candidates []taggedTrack, limit, maxPerArtist int) []string {
 	return ids
 }
 
-// playlistPrefix distinguishes this plugin's auto-generated playlists from
-// any other plugin's (e.g. the audio-analysis-based Mood Playlists this was
-// forked from uses plain names like "Happy Mix" - without this prefix,
-// upsertPlaylist's name-prefix matching would find and silently overwrite
-// those instead of creating a separate playlist).
-const playlistPrefix = "AI "
+const defaultPlaylistPrefix = "AI "
+
+// playlistPrefix returns the configured prefix for auto-generated playlist
+// names, distinguishing them from any other plugin's (e.g. the audio-
+// analysis-based Mood Playlists this was forked from uses plain names like
+// "Happy Mix" - without a prefix, upsertPlaylist's name-prefix matching would
+// find and silently overwrite those instead of creating a separate
+// playlist). configString already falls back to the default below when the
+// config value is blank, so an empty prefix - which would re-introduce
+// exactly that collision risk - isn't reachable through normal config.
+func playlistPrefix() string {
+	return configString("playlist_name_prefix", defaultPlaylistPrefix)
+}
 
 // tagLabel derives a display name from a "category:value" tag, e.g.
-// "mood:chill" -> "AI Chill Mix", "genre:new age" -> "AI New Age".
+// "mood:chill" -> "AI Chill Mix", "genre:new age" -> "AI New Age" (with the
+// default prefix - see playlistPrefix).
 func tagLabel(tag string) string {
 	category, value, ok := strings.Cut(tag, ":")
 	if !ok {
 		value = tag
 	}
-	label := playlistPrefix + titleCase(value)
+	label := playlistPrefix() + titleCase(value)
 	if category == "mood" {
 		label += " Mix"
 	}
@@ -538,19 +547,31 @@ func configBool(key string, defaultVal bool) bool {
 	return val == "true" || val == "1" || val == "yes"
 }
 
-// configStringArray reads an array-typed config value. The plugin host
-// serializes array-typed config fields as JSON strings, so the raw value is
-// a JSON array (e.g. `["rock","pop"]`), not a plain string.
-func configStringArray(key string) []string {
+// Pre-fills the genre_allowlist/mood_allowlist config fields so they show up
+// fully populated (matching AI Auto-Tagging's own vocabulary defaults) for
+// the user to edit down, rather than blank. See configVocabularyList.
+const defaultGenreVocabulary = "rock, pop, electronic, hip hop, jazz, classical, metal, folk, country, r&b, " +
+	"soul, blues, reggae, punk, indie, ambient, new age, world, funk, disco, house, techno, alternative, " +
+	"soundtrack, experimental"
+
+const defaultMoodVocabulary = "happy, chill, energetic, melancholy, party, aggressive, romantic, dreamy, " +
+	"dark, uplifting, nostalgic, peaceful"
+
+// configVocabularyList reads a comma-separated config value, distinguishing
+// "never configured" (the config key is entirely absent, e.g. before the
+// plugin's config has ever been saved - falls back to defaultCSV, so a fresh
+// install shows the full pre-filled list and behaves as "every value
+// allowed") from "explicitly cleared" (the key exists but is an empty
+// string, meaning the user deliberately emptied the field - returns an empty
+// list, meaning "no values allowed", i.e. build no playlists for this
+// category). Once saved at all, an empty field is respected as deliberate,
+// never silently re-defaulted.
+func configVocabularyList(key, defaultCSV string) []string {
 	raw, ok := host.ConfigGet(key)
-	if !ok || raw == "" {
-		return nil
+	if !ok {
+		return parseList(defaultCSV)
 	}
-	var values []string
-	if err := json.Unmarshal([]byte(raw), &values); err != nil {
-		return nil
-	}
-	return values
+	return parseList(raw)
 }
 
 // ── Playlist metadata enrichment ─────────────────────────────────

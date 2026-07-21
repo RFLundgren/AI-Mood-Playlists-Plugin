@@ -8,7 +8,7 @@ instead of running its own audio analysis.
 
 ## Status
 
-**Working, tested end-to-end in production.** Builds cleanly via TinyGo, 21 unit tests pass natively (no WASM
+**Working, tested end-to-end in production.** Builds cleanly via TinyGo, 24 unit tests pass natively (no WASM
 runtime needed), and it's been run against a real library with real AI-Auto-Tagging-written tags.
 
 ## Why this fork exists
@@ -41,9 +41,10 @@ cost belongs to AI Auto-Tagging; see that repo's README for its cost disclaimer.
 2. For each qualifying tag value, gathers every track carrying it (`getSongsByUserTag.view`), shuffles, walks the
    shuffled list applying a per-artist cap, stops once the configured playlist size is reached, and
    creates/updates a playlist via `createPlaylist`/`updatePlaylist`.
-3. Playlist names are prefixed `AI ` (e.g. `AI Chill Mix`, `AI Rock`) specifically so they never collide with the
-   original audio-analysis plugin's playlist names if both are installed side by side — its "createPlaylist"
-   name-prefix matching would otherwise find and silently overwrite the wrong playlist.
+3. Playlist names are prefixed `AI ` by default (e.g. `AI Chill Mix`, `AI Rock`) specifically so they never
+   collide with the original audio-analysis plugin's playlist names if both are installed side by side — its
+   "createPlaylist" name-prefix matching would otherwise find and silently overwrite the wrong playlist. This
+   prefix is configurable — see **Naming your playlists** below.
 4. Instant Mix is reimplemented around shared-tag overlap: similar tracks are ranked by how many tags they share
    with the source track, instead of continuous audio-vector distance (which discrete tags can't represent).
 
@@ -52,19 +53,51 @@ playlist's own tracks' album art the moment it has tracks, so this comes for fre
 
 ## Picking which playlists get created
 
-By default, every genre/mood value AI Auto-Tagging has used gets its own playlist — with the full fixed
-vocabulary (25 genres, 12 moods), that can be up to 37, and more if your library was tagged before that
-vocabulary existed (see the note below). Two config fields narrow this down:
+There are two config fields for this — **Genres to Build Playlists For** and **Moods to Build Playlists For** —
+each a plain comma-separated text box. When you first open the config screen, both are already filled in with
+AI Auto-Tagging's full built-in vocabulary (25 genres, 12 moods), so out of the box every genre/mood value it has
+used gets its own playlist — up to 37 total.
 
-- **Genres to Build Playlists For** / **Moods to Build Playlists For** — real checkbox lists in the config UI
-  (not free text), populated from AI Auto-Tagging's fixed vocabulary. Leave either empty to allow every value in
-  that category; check specific ones to build only those playlists.
+To build playlists for only some genres or moods, **delete the ones you don't want** from the text, keeping the
+comma-separated format. For example, if the Genres field starts as:
 
-> **Note on existing tags**: these checklists reflect AI Auto-Tagging's *current* fixed vocabulary. If a
-> library was tagged before that vocabulary was constrained, it may have many more (and messier) tag values than
-> the 37-word list — those older values won't appear as checkable options until the library is re-tagged to
-> match. See [AI Auto-Tagging's PLAN.md](https://github.com/RFLundgren/AI-auto-tagging-plugin/blob/master/PLAN.md)
-> for the cleanup approach used to clear old tags and let them get re-classified.
+```
+rock, pop, electronic, hip hop, jazz, classical, metal, folk, country, r&b, soul, blues, reggae, punk, indie, ambient, new age, world, funk, disco, house, techno, alternative, soundtrack, experimental
+```
+
+and you only want playlists for rock, jazz, and metal, edit it down to:
+
+```
+rock, jazz, metal
+```
+
+Anything you remove from the list simply won't get a playlist — the underlying tag still exists and tracks are
+still tagged with it, this field only controls which tag values get turned into playlists. You can also add words
+that aren't in the default list; a playlist gets built for a name in this field only if at least one track is
+actually tagged with that value, so adding a genre AI Auto-Tagging never uses has no effect.
+
+Clearing a field entirely (deleting all the text so it's blank) means **no playlists at all** for that category —
+this is different from leaving it untouched, which builds all of them.
+
+> **Note on existing tags**: these default lists mirror AI Auto-Tagging's *current* fixed vocabulary. If your
+> library was tagged before that vocabulary was constrained, it may have older, messier tag values that aren't in
+> this list — those won't get playlists until you either add them to this field by hand or re-tag your library
+> to match the current vocabulary. See
+> [AI Auto-Tagging's PLAN.md](https://github.com/RFLundgren/AI-auto-tagging-plugin/blob/master/PLAN.md) for the
+> cleanup approach used to clear old tags and let them get re-classified.
+
+## Naming your playlists
+
+Every auto-generated playlist name starts with a prefix — `AI ` by default, e.g. `AI Chill Mix`, `AI Rock`. This
+exists so the plugin's playlists are easy to spot in your library and so they never collide with playlists you
+already have (see the collision note above).
+
+The **Playlist Name Prefix** config field lets you change this to whatever you like. For example, setting it to
+`Auto: ` produces `Auto: Chill Mix` and `Auto: Rock` instead. Leaving it blank restores the default `AI `.
+
+If you change the prefix after playlists already exist under the old one, the old-prefixed playlists are left
+as-is (they're orphaned, not renamed or deleted) and new ones are created under the new prefix on the next
+rebuild — so it's worth deleting the old ones by hand if you don't want duplicates.
 
 ## Configuration
 
@@ -76,7 +109,8 @@ Set via Navidrome's Admin → Plugins → AI Mood Playlists → Config, after in
 | `navidrome_user` / `navidrome_password` | — | Needed because scheduled rebuilds run outside a user request context — same reason AI Auto-Tagging needs a `libraryUser` |
 | `rebuild_schedule` | `0 * * * *` (hourly) | Cron expression for how often to rebuild playlists |
 | `playlist_tag_categories` | `genre,mood` | Which tag categories to build playlists from at all |
-| `genre_allowlist` / `mood_allowlist` | empty (= all) | Checklists narrowing which specific values get a playlist |
+| `genre_allowlist` / `mood_allowlist` | full built-in vocabulary (pre-filled, editable) | Comma-separated list of genre/mood values to build a playlist for. Delete entries to narrow it down, clear entirely to build none for that category. See **Picking which playlists get created** above |
+| `playlist_name_prefix` | `AI ` | Text prepended to every auto-generated playlist name. See **Naming your playlists** above |
 | `playlist_size` | `50` | Tracks per playlist |
 | `max_tracks_per_artist` | `3` | Per-artist cap per playlist (0 = no limit) |
 | `similar_songs_count` | `20` | Tracks returned for Instant Mix |
