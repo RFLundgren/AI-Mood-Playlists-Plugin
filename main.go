@@ -267,14 +267,21 @@ func selectTracks(candidates []taggedTrack, limit, maxPerArtist int) []string {
 	return ids
 }
 
+// playlistPrefix distinguishes this plugin's auto-generated playlists from
+// any other plugin's (e.g. the audio-analysis-based Mood Playlists this was
+// forked from uses plain names like "Happy Mix" - without this prefix,
+// upsertPlaylist's name-prefix matching would find and silently overwrite
+// those instead of creating a separate playlist).
+const playlistPrefix = "AI "
+
 // tagLabel derives a display name from a "category:value" tag, e.g.
-// "mood:chill" -> "Chill Mix", "genre:new age" -> "New Age".
+// "mood:chill" -> "AI Chill Mix", "genre:new age" -> "AI New Age".
 func tagLabel(tag string) string {
 	category, value, ok := strings.Cut(tag, ":")
 	if !ok {
 		value = tag
 	}
-	label := titleCase(value)
+	label := playlistPrefix + titleCase(value)
 	if category == "mood" {
 		label += " Mix"
 	}

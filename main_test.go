@@ -43,9 +43,9 @@ func TestTitleCase(t *testing.T) {
 }
 
 func TestTagLabel(t *testing.T) {
-	require.Equal(t, "Chill Mix", tagLabel("mood:chill"))
-	require.Equal(t, "New Age", tagLabel("genre:new age"))
-	require.Equal(t, "Untagged", tagLabel("untagged"))
+	require.Equal(t, "AI Chill Mix", tagLabel("mood:chill"))
+	require.Equal(t, "AI New Age", tagLabel("genre:new age"))
+	require.Equal(t, "AI Untagged", tagLabel("untagged"))
 }
 
 func TestParseList(t *testing.T) {
