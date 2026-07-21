@@ -27,6 +27,8 @@ nothing here can accidentally get pushed to the production repo.
 | Docs: forward-looking note + cost/idempotency section in `HELP.md` | ✅ Done |
 | Decision: Instant Mix's fate | ✅ Decided — reimagine around shared-tag overlap |
 | Decision: playlist mechanism | ✅ Decided — simplified, tag-based snapshot rebuild, running frequently |
+| Decision: playlist set | ✅ Decided — one playlist auto-created per discovered `genre:`/`mood:` tag value |
+| Fixed vocabulary for genre/mood (dependency, lives in AI Auto-Tagging-Plugin) | ✅ Done |
 | Actual code rework | 📋 Not started — `main.go` is currently byte-for-byte the original audio-analysis implementation |
 
 ## Architecture reference: what the original does today
@@ -89,15 +91,29 @@ itself:
 This is genuinely less code than the original (no score thresholds, no confidence-based re-analysis, no
 genre-boost weighting to port) while still guaranteeing the artist diversity this library actually needs.
 
+### Decision 3 — Playlist set ✅ Decided: one playlist auto-created per discovered tag value
+
+Considered keeping the original's 13 fixed named mixes (Happy Mix, Study Mix, etc.), but they were composite
+rules built on continuous score thresholds across multiple mood dimensions (e.g. Study Mix = relaxed ≥ 0.40 AND
+aggressive < 0.45 AND party < 0.50) — porting that 1:1 onto discrete tags would mean either constraining AI
+Auto-Tagging's vocabulary specifically to match these 13 concepts, or building a fuzzy-matching translation layer
+here. Both add real coupling between the two plugins' taxonomies that isn't worth it.
+
+Going dynamic instead: a playlist gets created automatically for every distinct `genre:`/`mood:` tag value found
+in the library, using the rebuild mechanism from Decision 2. This was a fragmentation risk on its own (open-ended
+AI word choice could produce "chill"/"relaxed"/"mellow" as separate near-duplicate playlists for the same idea) —
+resolved by constraining AI Auto-Tagging's prompt to a fixed, curated vocabulary for `genre` and `mood` (done, see
+that repo's `PLAN.md`), with a post-parse filter dropping anything outside it as a safety net. This also delivers
+something the original never had: genre-based playlists, not just the 13 mood-only mixes.
+
 ## Remaining implementation work
 
 1. Retire the Python analyzer-service dependency and every HTTP call to it in `main.go`.
 2. Replace KV-stored mood-score reads/writes with `getUserTags`/`search3` calls against AI Auto-Tagging's tags.
 3. Implement the simplified rebuild logic from Decision 2 above (gather → shuffle → per-artist-cap walk → size
    limit → upsert), with playlist size and per-artist cap as config values.
-4. Decide the actual playlist set — keep the same 13 named mixes (mapped from tag values instead of score
-   thresholds), or move to something more dynamic (e.g. one playlist auto-created per distinct `genre:`/`mood:`
-   tag value discovered in the library). Still open — smaller in scope than the two decisions above.
+4. Implement Decision 3 above: discover distinct `genre:`/`mood:` tag values across the library and auto-create/
+   maintain one playlist per value via the Decision 2 rebuild mechanism.
 5. Implement Instant Mix's tag-overlap reimplementation per Decision 1 above.
 6. Trim `manifest.json`'s config schema — remove now-obsolete fields (mood thresholds, analyzer URL, Last.fm
    key/weights, genre-boost-weight; genre exclusions become unnecessary if per-mix criteria can just exclude a
