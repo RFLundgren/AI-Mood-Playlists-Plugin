@@ -103,6 +103,12 @@ this is different from leaving it untouched, which builds all of them.
 > [AI Auto-Tagging's PLAN.md](https://github.com/RFLundgren/AI-auto-tagging-plugin/blob/master/PLAN.md) for the
 > cleanup approach used to clear old tags and let them get re-classified.
 
+**Lost track of the full list after trimming it down?** Both fields show a small ↺ (restore) icon at the right
+edge whenever their current value differs from the built-in default — click it to snap the field straight back
+to the full 25-genre/12-mood default list, no need to retype or copy-paste it from this README. It only appears
+once you've actually changed the field, and only resets that one field. (Requires a recent enough
+`navidrome-experimental` — this button needs its on-demand config-field-reset support.)
+
 ## Naming your playlists
 
 Every auto-generated playlist name starts with a prefix — `AI ` by default, e.g. `AI Chill Mix`, `AI Rock`. This

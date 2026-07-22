@@ -174,11 +174,17 @@
               "elements": [
                 {
                   "type": "Control",
-                  "scope": "#/properties/genre_allowlist"
+                  "scope": "#/properties/genre_allowlist",
+                  "options": {
+                    "resettable": true
+                  }
                 },
                 {
                   "type": "Control",
-                  "scope": "#/properties/mood_allowlist"
+                  "scope": "#/properties/mood_allowlist",
+                  "options": {
+                    "resettable": true
+                  }
                 }
               ]
             },
