@@ -1,5 +1,13 @@
 # AI Mood Playlists
 
+> ⚠️ **Requires [navidrome-experimental](https://github.com/RFLundgren/navidrome_experimental)** — this plugin
+> **will not work** on stock/upstream Navidrome. It reads tags via Subsonic endpoints
+> (`getAllUserTags.view`/`getSongsByUserTag.view`) that only exist in this personal fork, not in Navidrome itself.
+> You also need the [AI Auto-Tagging](https://github.com/RFLundgren/AI-Auto-Tagging-Plugin) plugin installed and
+> already covering a meaningful chunk of your library — this plugin only reads tags, it never writes any itself.
+> If you're not already running `navidrome-experimental`, install/switch to it first — see that repo's README for
+> how to get it — before installing either plugin.
+
 A [Navidrome](https://www.navidrome.org/) plugin that auto-generates and maintains playlists — one per genre or
 mood — built entirely from tags written by the
 [AI Auto-Tagging](https://github.com/RFLundgren/AI-auto-tagging-plugin) plugin. It's a fork of
