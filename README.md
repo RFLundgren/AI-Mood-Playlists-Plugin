@@ -30,6 +30,12 @@ configure that first, and let it cover a meaningful chunk of your library before
 If `getAllUserTags.view` comes back empty or thin, that's AI Auto-Tagging not having classified enough yet, not a
 bug in this plugin.
 
+This plugin only ever builds playlists from **AI Tags** (the ones AI Auto-Tagging writes) — never from **My Tags**
+(a person's own hand-added tags in Navidrome's "Edit Tags" dialog). That's enforced on the `navidrome-experimental`
+side: the `getAllUserTags.view`/`getSongsByUserTag.view` endpoints this plugin calls are scoped to AI-written tags
+only, so a personal tag that happens to share a name with something in AI Auto-Tagging's vocabulary (unlikely, but
+possible) can't accidentally end up in one of these playlists.
+
 No AI provider cost of its own — this plugin only calls Navidrome's own Subsonic API (free, local). All AI token
 cost belongs to AI Auto-Tagging; see that repo's README for its cost disclaimer.
 
