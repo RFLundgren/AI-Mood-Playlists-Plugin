@@ -68,6 +68,16 @@ cost belongs to AI Auto-Tagging; see that repo's README for its cost disclaimer.
 Playlist cover art is not something this plugin sets — Navidrome automatically generates a 4-tile mosaic from a
 playlist's own tracks' album art the moment it has tracks, so this comes for free with zero extra work.
 
+`navidrome-experimental` also has **AI Genre**/**AI Mood** sidebar dashboards — chip-grid pages built directly from
+AI Auto-Tagging's tags, for browsing/creating a one-off playlist from a single value by hand. This plugin's
+scheduled rebuilds and those dashboards read the exact same underlying tags; the dashboards are just a manual,
+on-demand alternative to what this plugin keeps up to date automatically. See `navidrome-experimental`'s README for
+details.
+
+<p align="left">
+    <img width="800" src=".github/screenshots/ss-generated-playlists.png" alt="Playlist list showing several AI-prefixed auto-generated playlists, e.g. AI Rock, AI Chill Mix">
+</p>
+
 ## Picking which playlists get created
 
 There are two config fields for this — **Genres to Build Playlists For** and **Moods to Build Playlists For** —
@@ -108,6 +118,10 @@ edge whenever their current value differs from the built-in default — click it
 to the full 25-genre/12-mood default list, no need to retype or copy-paste it from this README. It only appears
 once you've actually changed the field, and only resets that one field. (Requires a recent enough
 `navidrome-experimental` — this button needs its on-demand config-field-reset support.)
+
+<p align="left">
+    <img width="700" src=".github/screenshots/ss-allowlist-reset-button.png" alt="Genres to Build Playlists For config field, edited from its default, showing the restore icon at the right edge">
+</p>
 
 ## Naming your playlists
 
@@ -161,6 +175,10 @@ Rainy Day Reading: genre=folk,ambient | mood=melancholy,peaceful | size=25 | art
 A custom playlist is entirely independent of the genre/mood allowlists — even if you've narrowed
 **Genres to Build Playlists For** down to exclude "metal", a custom entry can still reference `genre=metal`,
 since it's not going through the regular one-playlist-per-discovered-value pipeline at all.
+
+<p align="left">
+    <img width="700" src=".github/screenshots/ss-custom-playlists-config.png" alt="Custom Combination Playlists config field, showing an example genre+mood entry">
+</p>
 
 ## Configuration
 
