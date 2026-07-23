@@ -1,5 +1,5 @@
 plugin.wasm
 *.ndp
 *.exe
-screenshots/
+/screenshots/
 session_notes.md
