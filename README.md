@@ -68,15 +68,22 @@ cost belongs to AI Auto-Tagging; see that repo's README for its cost disclaimer.
 Playlist cover art is not something this plugin sets — Navidrome automatically generates a 4-tile mosaic from a
 playlist's own tracks' album art the moment it has tracks, so this comes for free with zero extra work.
 
+<p align="left">
+    <img width="800" src=".github/screenshots/ss-generated-playlists.png" alt="Playlist list showing several AI-prefixed auto-generated playlists, e.g. AI Rock, AI Chill Mix">
+</p>
+
+Opening one shows a normal playlist — track list, play/shuffle/download/export, everything Navidrome already gives
+any playlist — plus a "Last generated" timestamp from this plugin's most recent rebuild.
+
+<p align="left">
+    <img width="800" src=".github/screenshots/ss-generated-playlist-tracks.png" alt="An auto-generated playlist opened, showing its track list and Last generated timestamp">
+</p>
+
 `navidrome-experimental` also has **AI Genre**/**AI Mood** sidebar dashboards — chip-grid pages built directly from
 AI Auto-Tagging's tags, for browsing/creating a one-off playlist from a single value by hand. This plugin's
 scheduled rebuilds and those dashboards read the exact same underlying tags; the dashboards are just a manual,
 on-demand alternative to what this plugin keeps up to date automatically. See `navidrome-experimental`'s README for
 details.
-
-<p align="left">
-    <img width="800" src=".github/screenshots/ss-generated-playlists.png" alt="Playlist list showing several AI-prefixed auto-generated playlists, e.g. AI Rock, AI Chill Mix">
-</p>
 
 ## Picking which playlists get created
 
