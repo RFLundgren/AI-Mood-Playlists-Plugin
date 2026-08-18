@@ -369,7 +369,7 @@ func TestStartRebuild_QueuesCustomPlaylistsAlongsideTagPlaylists(t *testing.T) {
 			strings.Join(task.Moods, ",") == "energetic"
 	})).Return("task-1", nil).Once()
 
-	err := startRebuild()
+	_, err := startRebuild()
 
 	require.NoError(t, err)
 	host.TaskMock.AssertExpectations(t)
@@ -429,7 +429,7 @@ func TestStartRebuild_FiltersToConfiguredCategoriesAndEnqueues(t *testing.T) {
 		return task["tag"] == "mood:chill"
 	})).Return("task-2", nil).Once()
 
-	err := startRebuild()
+	_, err := startRebuild()
 
 	require.NoError(t, err)
 	host.TaskMock.AssertExpectations(t)
@@ -466,7 +466,7 @@ func TestStartRebuild_GenreAllowlistOnlyNarrowsGenres(t *testing.T) {
 		return task["tag"] == "mood:chill"
 	})).Return("task-2", nil).Once()
 
-	err := startRebuild()
+	_, err := startRebuild()
 
 	require.NoError(t, err)
 	host.TaskMock.AssertExpectations(t)
@@ -497,7 +497,7 @@ func TestStartRebuild_ExplicitlyEmptyAllowlistBuildsNothingForThatCategory(t *te
 		return task["tag"] == "mood:chill"
 	})).Return("task-1", nil).Once()
 
-	err := startRebuild()
+	_, err := startRebuild()
 
 	require.NoError(t, err)
 	host.TaskMock.AssertExpectations(t)

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/navidrome/navidrome/plugins/pdk/go/action"
 	"github.com/navidrome/navidrome/plugins/pdk/go/host"
 	"github.com/navidrome/navidrome/plugins/pdk/go/lifecycle"
 	"github.com/navidrome/navidrome/plugins/pdk/go/metadata"
@@ -38,6 +39,8 @@ const (
 	enrichPayload  = "enrich-playlists"
 )
 
+const actionRebuildNow = "rebuildNow"
+
 // ── Plugin Registration ──────────────────────────────────────────
 
 type moodPlugin struct{}
@@ -48,6 +51,7 @@ func init() {
 	scheduler.Register(p)
 	taskworker.Register(p)
 	metadata.Register(p)
+	action.Register(p)
 }
 
 func main() {}
@@ -92,12 +96,28 @@ func (p *moodPlugin) OnInit() error {
 func (p *moodPlugin) OnCallback(req scheduler.SchedulerCallbackRequest) error {
 	switch req.Payload {
 	case rebuildPayload:
-		return startRebuild()
+		_, err := startRebuild()
+		return err
 	case enrichPayload:
 		return enrichPlaylists()
 	default:
 		pdk.Log(pdk.LogWarn, "Unknown schedule payload: "+req.Payload)
 		return nil
+	}
+}
+
+// OnAction handles on-demand actions triggered from the plugin's config page
+// (see manifest.json's "actions" declaration).
+func (p *moodPlugin) OnAction(req action.ActionRequest) (string, error) {
+	switch req.Name {
+	case actionRebuildNow:
+		queued, err := startRebuild()
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Queued %d playlist(s) for rebuild - check server logs for progress.", queued), nil
+	default:
+		return "", fmt.Errorf("unknown action %q", req.Name)
 	}
 }
 
@@ -164,12 +184,12 @@ func (p *moodPlugin) GetSimilarSongsByTrack(req metadata.SimilarSongsByTrackRequ
 // enqueues one rebuild task per tag value - kept fast enough to stay well
 // under Navidrome's 30-second scheduler-callback limit; the actual per-tag
 // work happens in the task queue via rebuildTagPlaylist.
-func startRebuild() error {
+func startRebuild() (int, error) {
 	pdk.Log(pdk.LogInfo, "Starting playlist rebuild...")
 
 	tags, err := fetchAllUserTags()
 	if err != nil {
-		return fmt.Errorf("getAllUserTags failed: %w", err)
+		return 0, fmt.Errorf("getAllUserTags failed: %w", err)
 	}
 
 	categories := parseList(configString("playlist_tag_categories", "genre,mood"))
@@ -226,7 +246,7 @@ func startRebuild() error {
 	}
 
 	pdk.Log(pdk.LogInfo, fmt.Sprintf("Queued %d playlist(s) for rebuild", queued))
-	return nil
+	return queued, nil
 }
 
 // rebuildTask is the task-queue payload for both discovered tag-value
